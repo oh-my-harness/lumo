@@ -117,3 +117,124 @@ class ChatSession:
     def abort(self) -> None:
         """Abort the current streaming response."""
         self._harness.abort()
+
+
+def grade_short_answer(store, config: ProviderConfig, question_id: str, user_answer: str) -> dict:
+    """Use LLM to grade a short-answer question.
+
+    Returns dict with:
+    - is_correct: bool
+    - explanation: str
+    """
+    question = store.get_question(question_id)
+    if not question:
+        return {"is_correct": False, "explanation": "Question not found"}
+
+    correct_answer = question.get("answer", "")
+    explanation = question.get("explanation", "")
+
+    provider = create_provider(config)
+    harness = (
+        senza.HarnessBuilder(config.model)
+        .provider("*", provider)
+        .system_prompt(
+            "你是阅卷老师。判断学生的简答题回答是否正确。"
+            "正确答案可能不要求完全一致，只要意思对即可。"
+            '回复 JSON: {"correct": true/false, "feedback": "..."}'
+        )
+        .max_tokens(256)
+        .build()
+    )
+
+    prompt = (
+        f"问题：{question['question']}\n"
+        f"正确答案：{correct_answer}\n"
+        f"学生回答：{user_answer}\n"
+        f"参考解析：{explanation}\n\n"
+        "请判断学生回答是否正确，给出反馈。"
+    )
+
+    events = harness.prompt_and_collect(prompt, timeout_ms=30000)
+    text = ""
+    for event in events:
+        if event["type"] == "text_delta":
+            text += event.get("text", "")
+
+    try:
+        from lumo.workflows import _extract_json
+        parsed = _extract_json(text)
+        return {
+            "is_correct": parsed.get("correct", False),
+            "explanation": parsed.get("feedback", ""),
+        }
+    except Exception:
+        return {"is_correct": False, "explanation": text[:200]}
+
+
+def summarize_note(store, config: ProviderConfig, note_id: str) -> str:
+    """Use LLM to generate a knowledge point summary for a note.
+
+    Returns the summary text.
+    """
+    note = store.get_note(note_id)
+    if not note:
+        return "Note not found"
+
+    content = note.get("content", "")
+    title = note.get("title", "")
+
+    provider = create_provider(config)
+    harness = (
+        senza.HarnessBuilder(config.model)
+        .provider("*", provider)
+        .system_prompt(
+            "你是学习笔记助手。为用户的笔记生成简洁的知识点摘要。"
+        )
+        .max_tokens(512)
+        .build()
+    )
+
+    prompt = f"请为以下笔记生成知识点摘要：\n\n标题：{title}\n内容：{content}"
+
+    events = harness.prompt_and_collect(prompt, timeout_ms=30000)
+    text = ""
+    for event in events:
+        if event["type"] == "text_delta":
+            text += event.get("text", "")
+
+    return text
+
+
+def summarize_conversation(store, config: ProviderConfig, session_id: str) -> str:
+    """Use LLM to summarize a conversation into a note.
+
+    Returns the summary text suitable for saving as a note.
+    """
+    messages = store.get_messages(session_id)
+    if not messages:
+        return "No messages to summarize"
+
+    conversation = "\n".join(
+        f"{m['role']}: {m['content']}" for m in messages
+    )
+
+    provider = create_provider(config)
+    harness = (
+        senza.HarnessBuilder(config.model)
+        .provider("*", provider)
+        .system_prompt(
+            "你是学习助手。将对话总结为一份学习笔记，用 Markdown 格式。"
+        )
+        .max_tokens(1024)
+        .build()
+    )
+
+    prompt = f"请将以下对话总结为学习笔记：\n\n{conversation}"
+
+    events = harness.prompt_and_collect(prompt, timeout_ms=30000)
+    text = ""
+    for event in events:
+        if event["type"] == "text_delta":
+            text += event.get("text", "")
+
+    return text

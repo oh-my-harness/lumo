@@ -9,6 +9,7 @@ Kotlin calls: Python.getInstance().getModule("lumo.bridge").callAttr(...)
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Optional
 
@@ -292,3 +293,262 @@ def abort_chat() -> None:
     """Abort the current streaming response."""
     if _chat_session is not None:
         _chat_session.abort()
+
+# ── Plan Generation (Module 2) ──
+
+def generate_plan(goal: str, daily_minutes: int, week_num: int = 1) -> dict:
+    """Run plan generation workflow. Returns dict with weeks, tasks, verified, cost."""
+    from lumo.workflows import run_plan_workflow
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured")
+
+    session_dir = os.path.join(_data_dir, "workflows")
+    os.makedirs(session_dir, exist_ok=True)
+
+    result = run_plan_workflow(store, config, session_dir, goal, daily_minutes, week_num)
+
+    # Persist the plan and tasks to SQLite
+    plan_id = store.create_plan(
+        title=goal[:50],
+        goal=goal,
+        daily_minutes=daily_minutes,
+    )
+    result["plan_id"] = plan_id
+
+    # Persist tasks from the workflow result
+    for task in result.get("tasks", []):
+        store.create_task(
+            plan_id=plan_id,
+            week_num=week_num,
+            title=task.get("title", ""),
+            description=task.get("description", ""),
+            knowledge_points=json.dumps(task.get("knowledge_points", []), ensure_ascii=False),
+            day_of_week=task.get("day"),
+        )
+
+    return result
+
+
+def get_plan_tasks(plan_id: str, week_num: int = 0) -> list[dict]:
+    """Get tasks for a plan, optionally filtered by week."""
+    store = _ensure_store()
+    return store.get_tasks(plan_id, week_num if week_num else None)
+
+
+def update_task_status(task_id: str, status: str) -> None:
+    """Update a task's status."""
+    _ensure_store().update_task(task_id, status=status)
+
+
+def reorder_plan_tasks(plan_id: str, task_ids_json: str) -> None:
+    """Reorder tasks within a plan. task_ids_json is a JSON array string."""
+    task_ids = json.loads(task_ids_json)
+    _ensure_store().reorder_tasks(plan_id, task_ids)
+
+
+def delete_plan(plan_id: str) -> None:
+    """Delete a plan and all its tasks."""
+    _ensure_store().delete_plan(plan_id)
+
+
+def update_plan_status(plan_id: str, status: str) -> None:
+    """Update a plan's status."""
+    _ensure_store().update_plan(plan_id, status=status)
+
+
+# ── Quiz (Module 4) ──
+
+def generate_quiz(knowledge_points: str, num_questions: int = 3,
+                  plan_id: str = "", task_id: str = "") -> dict:
+    """Run quiz generation workflow. Returns dict with questions, verified, cost."""
+    from lumo.workflows import run_quiz_workflow
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured")
+
+    session_dir = os.path.join(_data_dir, "workflows")
+    os.makedirs(session_dir, exist_ok=True)
+
+    result = run_quiz_workflow(
+        store, config, session_dir, knowledge_points, num_questions,
+        plan_id, task_id,
+    )
+
+    # Persist questions to SQLite
+    question_ids = []
+    for q in result.get("questions", []):
+        qid = store.create_question(
+            question_type=q.get("type", "single_choice"),
+            question=q.get("question", ""),
+            options=json.dumps(q.get("options", []), ensure_ascii=False),
+            answer=q.get("answer", ""),
+            explanation=q.get("explanation", ""),
+            knowledge_points=json.dumps(q.get("knowledge_points", []), ensure_ascii=False),
+            plan_id=plan_id,
+            task_id=task_id,
+        )
+        question_ids.append(qid)
+    result["question_ids"] = question_ids
+
+    return result
+
+
+def grade_answer(question_id: str, user_answer: str) -> dict:
+    """Grade an answer. Objective questions are graded directly;
+    short_answer questions use AI grading."""
+    from lumo.agent import grade_short_answer
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    question = store.get_question(question_id)
+    if not question:
+        return {"is_correct": False, "explanation": "Question not found"}
+
+    q_type = question.get("question_type", "")
+    correct_answer = question.get("answer", "")
+
+    if q_type == "short_answer":
+        config = get_provider_config(store)
+        if config is None:
+            return {"is_correct": False, "explanation": "Provider not configured"}
+        result = grade_short_answer(store, config, question_id, user_answer)
+        store.record_answer(
+            question_id, user_answer,
+            is_correct=result["is_correct"],
+            error_reason=result.get("explanation", ""),
+        )
+        return result
+    else:
+        # Objective grading
+        is_correct = user_answer.strip().upper() == correct_answer.strip().upper()
+        error_reason = "" if is_correct else f"Correct answer: {correct_answer}"
+        store.record_answer(question_id, user_answer, is_correct, error_reason)
+        return {
+            "is_correct": is_correct,
+            "explanation": question.get("explanation", ""),
+        }
+
+
+def get_quiz_questions(plan_id: str = "") -> list[dict]:
+    """List quiz questions, optionally filtered by plan."""
+    store = _ensure_store()
+    return store.list_questions(plan_id if plan_id else None)
+
+
+def get_quiz_errors() -> list[dict]:
+    """Get all wrong answers with question details."""
+    return _ensure_store().get_wrong_answers()
+
+
+# ── Notes AI (Module 5) ──
+
+def ai_summarize_note(note_id: str) -> str:
+    """Generate AI summary for a note."""
+    from lumo.agent import summarize_note
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured")
+    return summarize_note(store, config, note_id)
+
+
+def save_conversation_as_note(session_id: str, title: str = "") -> str:
+    """Summarize a conversation and save it as a note."""
+    from lumo.agent import summarize_conversation
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured")
+
+    summary = summarize_conversation(store, config, session_id)
+
+    session = store.get_session(session_id)
+    note_title = title or (session["title"] if session else "对话总结")
+
+    note_id = store.create_note(note_title, summary, source="conversation")
+    return note_id
+
+
+# ── Daily Tasks & Pomodoro (Module 3) ──
+
+def get_today_tasks() -> list[dict]:
+    """Get today's tasks across all active plans.
+
+    Returns tasks grouped by plan.
+    """
+    store = _ensure_store()
+    active_plans = store.list_plans(status="active")
+    all_tasks = []
+    for plan in active_plans:
+        tasks = store.get_tasks(plan["id"])
+        for task in tasks:
+            task["plan_title"] = plan["title"]
+            all_tasks.append(task)
+    return all_tasks
+
+
+def record_pomodoro(task_id: str, plan_id: str, duration_seconds: int,
+                    started_at: str) -> str:
+    """Record a completed pomodoro session."""
+    from datetime import datetime, timezone
+    ts = started_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return _ensure_store().record_study_session(
+        ts, duration_seconds, task_id=task_id, plan_id=plan_id, pomodoro_count=1,
+    )
+
+
+def checkin_today(task_ids_json: str = "[]") -> str:
+    """Check in for today with completed task IDs."""
+    from datetime import date
+    today = date.today().isoformat()
+    return _ensure_store().checkin(today, task_ids_json)
+
+
+# ── Stats (Module 6) ──
+
+def get_stats() -> dict:
+    """Get aggregated study statistics."""
+    store = _ensure_store()
+    return {
+        "total_study_time": store.get_total_study_time(),
+        "streak": store.get_streak(),
+        "study_sessions": store.get_study_sessions(),
+    }
+
+
+def get_study_trend(period: str = "week") -> dict:
+    """Get study time trend. period: 'day', 'week', 'month', or 'all'."""
+    store = _ensure_store()
+    sessions = store.get_study_sessions()
+
+    # Aggregate by period
+    from collections import defaultdict
+    from datetime import datetime
+
+    totals = defaultdict(int)
+    for s in sessions:
+        started = s.get("started_at", "")[:10]  # YYYY-MM-DD
+        if started:
+            totals[started] += s.get("duration_seconds", 0)
+
+    return {
+        "period": period,
+        "data": dict(sorted(totals.items())),
+        "total": sum(totals.values()),
+    }
+
+
+def get_knowledge_mastery(plan_id: str) -> list[dict]:
+    """Get knowledge point mastery for a plan."""
+    return _ensure_store().list_kps(plan_id)
