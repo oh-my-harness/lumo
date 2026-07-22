@@ -17,7 +17,13 @@ class LumoRepository private constructor(private val py: Python) {
         fun init(context: Context) {
             if (!Python.isStarted()) Python.start(AndroidPlatform(context))
             if (instance == null) synchronized(this) {
-                if (instance == null) instance = LumoRepository(Python.getInstance())
+                if (instance == null) {
+                    val repo = LumoRepository(Python.getInstance())
+                    // Initialize Python bridge with app data directory
+                    val dataDir = context.filesDir.absolutePath
+                    repo.bridge().callAttr("init", dataDir)
+                    instance = repo
+                }
             }
         }
         fun get(): LumoRepository = instance ?: error("LumoRepository not initialized")

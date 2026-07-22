@@ -155,13 +155,18 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                         loading = true
                         try {
                             if (!chatStarted) {
+                                android.util.Log.i("LumoChat", "startChat sessionId=$sessionId")
                                 withContext(Dispatchers.IO) { repo.startChat(sessionId) }
                                 chatStarted = true
+                                android.util.Log.i("LumoChat", "startChat OK")
                             }
                             messages = messages + mapOf("role" to "user", "content" to text)
+                            android.util.Log.i("LumoChat", "sendMessage: $text")
                             val response = withContext(Dispatchers.IO) { repo.sendMessage(text) }
+                            android.util.Log.i("LumoChat", "sendMessage response: ${response.take(100)}")
                             messages = messages + mapOf("role" to "assistant", "content" to response)
                         } catch (e: Exception) {
+                            android.util.Log.e("LumoChat", "chat error", e)
                             messages = messages + mapOf("role" to "assistant", "content" to "错误: ${e.message}")
                         }
                         loading = false
