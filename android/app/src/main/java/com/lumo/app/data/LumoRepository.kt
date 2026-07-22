@@ -2,9 +2,9 @@
 package com.lumo.app.data
 
 import android.content.Context
+import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
-import org.json.JSONArray
 
 /**
  * Repository: Kotlin → Chaquopy → Python bridge.
@@ -13,22 +13,33 @@ import org.json.JSONArray
 class LumoRepository private constructor(private val py: Python) {
 
     companion object {
-        @Volatile private var INSTANCE: LumoRepository? = null
-
+        @Volatile private var instance: LumoRepository? = null
         fun init(context: Context) {
-            if (!Python.isStarted()) {
-                Python.start(AndroidPlatform(context))
+            if (!Python.isStarted()) Python.start(AndroidPlatform(context))
+            if (instance == null) synchronized(this) {
+                if (instance == null) instance = LumoRepository(Python.getInstance())
             }
-            val py = Python.getInstance()
-            val dataDir = context.filesDir.absolutePath + "/lumo"
-            py.getModule("lumo.bridge").callAttr("init", dataDir)
-            INSTANCE = LumoRepository(py)
         }
-
-        fun get(): LumoRepository = INSTANCE ?: error("LumoRepository.init() not called")
+        fun get(): LumoRepository = instance ?: error("LumoRepository not initialized")
     }
 
     private fun bridge() = py.getModule("lumo.bridge")
+
+    /** Convert a Chaquopy PyObject map to Map<String, String?> with proper toString(). */
+    private fun PyObject.toStringMap(): Map<String, String?> =
+        this.asMap().entries.associate { (k, v) ->
+            k.toString() to (if (v == null) null else v.toString())
+        }
+
+    /** Convert a Chaquopy PyObject list-of-maps to List<Map<String, String?>>. */
+    private fun PyObject.toStringMapList(): List<Map<String, String?>> =
+        this.asList().map { it.toStringMap() }
+
+    /** Convert a Chaquopy PyObject map to Map<String, String> (non-null values). */
+    private fun PyObject.toNonNullableStringMap(): Map<String, String> =
+        this.asMap().entries.associate { (k, v) ->
+            k.toString() to (v?.toString() ?: "")
+        }
 
     // ── Provider Config ──
     fun saveProviderConfig(type: String, apiKey: String, baseUrl: String, model: String) {
@@ -36,8 +47,8 @@ class LumoRepository private constructor(private val py: Python) {
     }
     fun getProviderConfig(): Map<String, String>? {
         val result = bridge().callAttr("get_provider_config")
-        return if (result.toString() == "None") null
-        else (result.asMap() as Map<String, String>)
+        if (result == null) return null
+        return try { result.toNonNullableStringMap() } catch (e: Exception) { null }
     }
     fun testConnection(type: String, apiKey: String, baseUrl: String, model: String): String {
         return bridge().callAttr("test_provider_connection", type, apiKey, baseUrl, model).toString()
@@ -45,101 +56,77 @@ class LumoRepository private constructor(private val py: Python) {
 
     // ── Sessions ──
     fun createSession(title: String): String = bridge().callAttr("create_session", title).toString()
-    fun listSessions(): List<Map<String, String?>> {
-        val list = bridge().callAttr("list_sessions").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun listSessions(): List<Map<String, String?>> =
+        bridge().callAttr("list_sessions").toStringMapList()
     fun deleteSession(id: String) = bridge().callAttr("delete_session", id)
     fun updateSessionTitle(id: String, title: String) = bridge().callAttr("update_session_title", id, title)
-    fun getMessages(sessionId: String): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_messages", sessionId).asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
-    fun searchMessages(query: String): List<Map<String, String?>> {
-        val list = bridge().callAttr("search_messages", query).asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun getMessages(sessionId: String): List<Map<String, String?>> =
+        bridge().callAttr("get_messages", sessionId).toStringMapList()
+    fun searchMessages(query: String): List<Map<String, String?>> =
+        bridge().callAttr("search_messages", query).toStringMapList()
 
     // ── Chat ──
     fun startChat(sessionId: String) = bridge().callAttr("start_chat", sessionId)
     fun sendMessage(text: String): String = bridge().callAttr("send_message", text).toString()
-    fun getQuickPrompts(): List<Map<String, String>> {
-        val list = bridge().callAttr("get_quick_prompts").asList()
-        return list.map { (it.asMap() as Map<String, String>) }
-    }
-    fun getChatHistory(): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_chat_history").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun getQuickPrompts(): List<Map<String, String>> =
+        bridge().callAttr("get_quick_prompts").asList()
+            .map { it.toNonNullableStringMap() }
+    fun getChatHistory(): List<Map<String, String?>> =
+        bridge().callAttr("get_chat_history").toStringMapList()
     fun abortChat() = bridge().callAttr("abort_chat")
 
     // ── Plans ──
-    fun listPlans(): List<Map<String, String?>> {
-        val list = bridge().callAttr("list_plans").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun listPlans(): List<Map<String, String?>> =
+        bridge().callAttr("list_plans").toStringMapList()
     fun createPlan(title: String, goal: String, dailyMinutes: Int, startDate: String, endDate: String): String =
         bridge().callAttr("create_plan", title, goal, dailyMinutes, startDate, endDate).toString()
     fun deletePlan(id: String) = bridge().callAttr("delete_plan", id)
     fun updatePlanStatus(id: String, status: String) = bridge().callAttr("update_plan_status", id, status)
-    fun getPlanTasks(planId: String): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_plan_tasks", planId).asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun getPlanTasks(planId: String): List<Map<String, String?>> =
+        bridge().callAttr("get_plan_tasks", planId).toStringMapList()
     fun updateTaskStatus(taskId: String, status: String) = bridge().callAttr("update_task_status", taskId, status)
-    fun getTodayTasks(): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_today_tasks").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun getTodayTasks(): List<Map<String, String?>> =
+        bridge().callAttr("get_today_tasks").toStringMapList()
 
     // ── Notes ──
-    fun listNotes(): List<Map<String, String?>> {
-        val list = bridge().callAttr("list_notes").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun listNotes(): List<Map<String, String?>> =
+        bridge().callAttr("list_notes").toStringMapList()
     fun createNote(title: String, content: String): String =
         bridge().callAttr("create_note", title, content).toString()
     fun updateNote(id: String, title: String, content: String) =
         bridge().callAttr("update_note", id, title, content)
     fun deleteNote(id: String) = bridge().callAttr("delete_note", id)
-    fun searchNotes(query: String): List<Map<String, String?>> {
-        val list = bridge().callAttr("search_notes", query).asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
-    fun listFolders(): List<Map<String, String?>> {
-        val list = bridge().callAttr("list_folders").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun searchNotes(query: String): List<Map<String, String?>> =
+        bridge().callAttr("search_notes", query).toStringMapList()
+    fun listFolders(): List<Map<String, String?>> =
+        bridge().callAttr("list_folders").toStringMapList()
     fun createFolder(name: String): String = bridge().callAttr("create_folder", name).toString()
 
     // ── Quiz ──
-    fun getQuizQuestions(): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_quiz_questions").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
-    fun getQuizErrors(): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_quiz_errors").asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun getQuizQuestions(): List<Map<String, String?>> =
+        bridge().callAttr("get_quiz_questions").toStringMapList()
+    fun getQuizErrors(): List<Map<String, String?>> =
+        bridge().callAttr("get_quiz_errors").toStringMapList()
     fun gradeAnswer(questionId: String, userAnswer: String): Map<String, Any?> {
         val result = bridge().callAttr("grade_answer", questionId, userAnswer)
-        return (result.asMap() as Map<String, Any?>)
+        return result.asMap().entries.associate { (k, v) ->
+            k.toString() to (v as? Any)
+        }
     }
 
     // ── Stats ──
     fun getStats(): Map<String, Any?> {
         val result = bridge().callAttr("get_stats")
-        return (result.asMap() as Map<String, Any?>)
+        return result.asMap().entries.associate { (k, v) ->
+            k.toString() to (v as? Any)
+        }
     }
     fun getStreak(): Int = bridge().callAttr("get_streak").toInt()
     fun getTotalStudyTime(): Int = bridge().callAttr("get_total_study_time").toInt()
-    fun getCheckinHeatmap(month: String): List<Map<String, String?>> {
-        val list = bridge().callAttr("get_checkin_heatmap", month).asList()
-        return list.map { (it.asMap() as Map<String, String?>) }
-    }
+    fun getCheckinHeatmap(month: String): List<Map<String, String?>> =
+        bridge().callAttr("get_checkin_heatmap", month).toStringMapList()
     fun checkinToday(taskIds: List<String>) {
-        val jsonArr = JSONArray(taskIds).toString()
-        bridge().callAttr("checkin_today", jsonArr)
+        bridge().callAttr("checkin_today", taskIds)
     }
     fun recordPomodoro(taskId: String, planId: String, durationSec: Int, startedAt: String) {
         bridge().callAttr("record_pomodoro", taskId, planId, durationSec, startedAt)
