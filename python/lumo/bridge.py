@@ -242,3 +242,53 @@ def get_study_sessions(plan_id: str = "") -> list[dict]:
 
 def list_kps(plan_id: str) -> list[dict]:
     return _ensure_store().list_kps(plan_id)
+
+# ── Chat (Module 1) ──
+
+_chat_session = None
+
+
+def start_chat(session_id: str) -> None:
+    """Start a chat session. Creates a ChatSession with the current provider config."""
+    global _chat_session
+    from lumo.agent import ChatSession
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured. Call save_provider_config first.")
+    _chat_session = ChatSession(store, config, session_id)
+
+
+def send_message(text: str) -> str:
+    """Send a message and return the complete response."""
+    if _chat_session is None:
+        raise RuntimeError("Chat not started. Call start_chat first.")
+    return _chat_session.send_message(text)
+
+
+def stream_chat(text: str, callback) -> str:
+    """Stream a chat response. callback.onToken(text) is called for each token."""
+    if _chat_session is None:
+        raise RuntimeError("Chat not started. Call start_chat first.")
+    return _chat_session.stream_message(text, on_token=callback.onToken)
+
+
+def get_chat_history() -> list[dict]:
+    """Return persisted chat messages for the current session."""
+    if _chat_session is None:
+        raise RuntimeError("Chat not started. Call start_chat first.")
+    return _chat_session.get_history()
+
+
+def get_quick_prompts() -> list[dict]:
+    """Return quick prompt buttons for the chat UI."""
+    from lumo.prompts import QUICK_PROMPTS
+    return QUICK_PROMPTS
+
+
+def abort_chat() -> None:
+    """Abort the current streaming response."""
+    if _chat_session is not None:
+        _chat_session.abort()

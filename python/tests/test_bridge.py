@@ -9,6 +9,7 @@ from lumo.bridge import (
     list_plans, create_plan,
     list_notes, search_notes, create_note, update_note, delete_note,
     list_folders, create_folder,
+    get_quick_prompts, get_chat_history,
 )
 
 
@@ -128,3 +129,18 @@ class TestBridgeFolders:
         folders = list_folders()
         assert len(folders) == 1
         assert folders[0]["name"] == "My Folder"
+
+
+
+class TestBridgeChat:
+    def test_get_quick_prompts(self, tmp_path):
+        init(str(tmp_path / "lumo"))
+        prompts = get_quick_prompts()
+        assert len(prompts) >= 4
+        assert "key" in prompts[0]
+        assert "label" in prompts[0]
+
+    def test_get_chat_history_without_chat_raises(self, tmp_path):
+        init(str(tmp_path / "lumo"))
+        with pytest.raises(RuntimeError, match="Chat not started"):
+            get_chat_history()
