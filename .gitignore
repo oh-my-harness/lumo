@@ -1,9 +1,23 @@
-# target
-*.apk
-*.aab
-.cxx/
+# Rust / Python
+target/
 __pycache__/
 *.pyc
 *.egg-info/
 build/
 dist/
+
+# Android
+*.apk
+*.aab
+.cxx/
+local.properties
+*.keystore
+*.jks
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
