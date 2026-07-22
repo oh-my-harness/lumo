@@ -19,3 +19,4 @@ where = ["."]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = [".venv", "lumo", "build", "dist"]
