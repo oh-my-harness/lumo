@@ -177,9 +177,34 @@ class Store:
     def _init_schema(self):
         """Create all tables if they don't exist."""
         with self._conn() as conn:
-            conn.executescript(SCHEMA_SQL)
+            # Try FTS5 first; if unsupported, create tables without it
+            self._has_fts5 = self._check_fts5(conn)
+            schema = SCHEMA_SQL
+            if not self._has_fts5:
+                schema = schema.replace(
+                    'CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(\n'
+                    '    content, content=\'messages\', content_rowid=\'rowid\'\n'
+                    ');',
+                    '-- FTS5 not available; messages_fts skipped'
+                ).replace(
+                    'CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(\n'
+                    '    title, content, content=\'notes\', content_rowid=\'rowid\'\n'
+                    ');',
+                    '-- FTS5 not available; notes_fts skipped'
+                )
+            conn.executescript(schema)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
+
+    @staticmethod
+    def _check_fts5(conn) -> bool:
+        """Check if SQLite has FTS5 support."""
+        try:
+            conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_test USING fts5(x)")
+            conn.execute("DROP TABLE IF EXISTS _fts5_test")
+            return True
+        except Exception:
+            return False
 
     def _conn(self) -> sqlite3.Connection:
         """Create a new connection. Caller is responsible for closing."""
@@ -306,11 +331,12 @@ class Store:
                 "INSERT INTO messages (id, session_id, role, content) VALUES (?, ?, ?, ?)",
                 (mid, session_id, role, content),
             )
-            conn.execute(
-                """INSERT INTO messages_fts (rowid, content)
-                   VALUES ((SELECT rowid FROM messages WHERE id = ?), ?)""",
-                (mid, content),
-            )
+            if self._has_fts5:
+                conn.execute(
+                    """INSERT INTO messages_fts (rowid, content)
+                       VALUES ((SELECT rowid FROM messages WHERE id = ?), ?)""",
+                    (mid, content),
+                )
             conn.execute(
                 """UPDATE sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
                    WHERE id = ?""",
@@ -329,13 +355,20 @@ class Store:
 
     def search_messages(self, query: str) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT m.* FROM messages_fts fts
-                   JOIN messages m ON m.rowid = fts.rowid
-                   WHERE messages_fts MATCH ?
-                   ORDER BY m.created_at DESC""",
-                (query,),
-            ).fetchall()
+            if self._has_fts5:
+                rows = conn.execute(
+                    """SELECT m.* FROM messages_fts fts
+                       JOIN messages m ON m.rowid = fts.rowid
+                       WHERE messages_fts MATCH ?
+                       ORDER BY m.created_at DESC""",
+                    (query,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM messages WHERE content LIKE ?
+                       ORDER BY created_at DESC""",
+                    (f"%{query}%",),
+                ).fetchall()
             return [dict(r) for r in rows]
 
     # ── Plans CRUD ──
@@ -470,11 +503,12 @@ class Store:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (nid, folder_id or None, title, content, source, linked_kp or None),
             )
-            conn.execute(
-                """INSERT INTO notes_fts (rowid, title, content)
-                   VALUES ((SELECT rowid FROM notes WHERE id = ?), ?, ?)""",
-                (nid, title, content),
-            )
+            if self._has_fts5:
+                conn.execute(
+                    """INSERT INTO notes_fts (rowid, title, content)
+                       VALUES ((SELECT rowid FROM notes WHERE id = ?), ?, ?)""",
+                    (nid, title, content),
+                )
             conn.commit()
         return nid
 
@@ -512,7 +546,7 @@ class Store:
                     WHERE id = ?""",
                 values + [note_id],
             )
-            if "title" in updates or "content" in updates:
+            if self._has_fts5 and ("title" in updates or "content" in updates):
                 note = conn.execute(
                     "SELECT title, content FROM notes WHERE id = ?", (note_id,)
                 ).fetchone()
@@ -531,13 +565,20 @@ class Store:
 
     def search_notes(self, query: str) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT n.* FROM notes_fts fts
-                   JOIN notes n ON n.rowid = fts.rowid
-                   WHERE notes_fts MATCH ?
-                   ORDER BY n.updated_at DESC""",
-                (query,),
-            ).fetchall()
+            if self._has_fts5:
+                rows = conn.execute(
+                    """SELECT n.* FROM notes_fts fts
+                       JOIN notes n ON n.rowid = fts.rowid
+                       WHERE notes_fts MATCH ?
+                       ORDER BY n.updated_at DESC""",
+                    (query,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM notes WHERE title LIKE ? OR content LIKE ?
+                       ORDER BY updated_at DESC""",
+                    (f"%{query}%", f"%{query}%"),
+                ).fetchall()
             return [dict(r) for r in rows]
 
     # ── Folders CRUD ──

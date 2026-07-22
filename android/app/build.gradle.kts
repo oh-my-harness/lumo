@@ -49,6 +49,7 @@ chaquopy {
     }
     sourceSets {
         getByName("main") {
+            srcDir("${rootProject.projectDir}/../python")
             srcDir("src/main/python")
         }
     }
