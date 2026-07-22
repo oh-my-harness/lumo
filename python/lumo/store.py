@@ -247,3 +247,523 @@ class Store:
                 (scope,),
             ).fetchall()
             return [dict(r) for r in rows]
+    # ── Sessions CRUD ──
+
+    def create_session(self, title: str = "") -> str:
+        sid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO sessions (id, title) VALUES (?, ?)",
+                (sid, title),
+            )
+            conn.commit()
+        return sid
+
+    def list_sessions(self) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sessions ORDER BY updated_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_session(self, session_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_session(self, session_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            conn.commit()
+
+    def update_session_title(self, session_id: str, title: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE sessions SET title = ?,
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                   WHERE id = ?""",
+                (title, session_id),
+            )
+            conn.commit()
+
+    def touch_session(self, session_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                   WHERE id = ?""",
+                (session_id,),
+            )
+            conn.commit()
+
+    # ── Messages CRUD ──
+
+    def add_message(self, session_id: str, role: str, content: str) -> str:
+        mid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO messages (id, session_id, role, content) VALUES (?, ?, ?, ?)",
+                (mid, session_id, role, content),
+            )
+            conn.execute(
+                """INSERT INTO messages_fts (rowid, content)
+                   VALUES ((SELECT rowid FROM messages WHERE id = ?), ?)""",
+                (mid, content),
+            )
+            conn.execute(
+                """UPDATE sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                   WHERE id = ?""",
+                (session_id,),
+            )
+            conn.commit()
+        return mid
+
+    def get_messages(self, session_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at",
+                (session_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def search_messages(self, query: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT m.* FROM messages_fts fts
+                   JOIN messages m ON m.rowid = fts.rowid
+                   WHERE messages_fts MATCH ?
+                   ORDER BY m.created_at DESC""",
+                (query,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Plans CRUD ──
+
+    def create_plan(
+        self, title: str, goal: str, daily_minutes: int = 60,
+        start_date: str = "", end_date: str = "",
+    ) -> str:
+        pid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO plans (id, title, goal, daily_minutes, start_date, end_date)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (pid, title, goal, daily_minutes, start_date or None, end_date or None),
+            )
+            conn.commit()
+        return pid
+
+    def list_plans(self, status: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM plans WHERE status = ? ORDER BY created_at DESC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM plans ORDER BY created_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_plan(self, plan_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM plans WHERE id = ?", (plan_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def update_plan(self, plan_id: str, **fields) -> None:
+        allowed = {"title", "goal", "daily_minutes", "start_date", "end_date", "status"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [plan_id]
+        with self._conn() as conn:
+            conn.execute(f"UPDATE plans SET {set_clause} WHERE id = ?", values)
+            conn.commit()
+
+    def delete_plan(self, plan_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
+            conn.commit()
+
+    # ── Tasks CRUD ──
+
+    def create_task(
+        self, plan_id: str, week_num: int, title: str,
+        day_of_week: int | None = None, description: str = "",
+        knowledge_points: str = "", order_idx: int = 0,
+    ) -> str:
+        tid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO tasks
+                   (id, plan_id, week_num, day_of_week, title, description, knowledge_points, order_idx)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (tid, plan_id, week_num, day_of_week, title, description, knowledge_points, order_idx),
+            )
+            conn.commit()
+        return tid
+
+    def get_tasks(self, plan_id: str, week_num: int | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if week_num is not None:
+                rows = conn.execute(
+                    "SELECT * FROM tasks WHERE plan_id = ? AND week_num = ? ORDER BY order_idx",
+                    (plan_id, week_num),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM tasks WHERE plan_id = ? ORDER BY week_num, order_idx",
+                    (plan_id,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_tasks_for_day(self, plan_id: str, week_num: int, day_of_week: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM tasks WHERE plan_id = ? AND week_num = ? AND day_of_week = ?
+                   ORDER BY order_idx""",
+                (plan_id, week_num, day_of_week),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_task(self, task_id: str, **fields) -> None:
+        allowed = {"title", "description", "knowledge_points", "order_idx",
+                   "status", "day_of_week", "week_num"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [task_id]
+        with self._conn() as conn:
+            conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", values)
+            conn.commit()
+
+    def delete_task(self, task_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            conn.commit()
+
+    def reorder_tasks(self, plan_id: str, task_ids_in_order: list[str]) -> None:
+        with self._conn() as conn:
+            for idx, tid in enumerate(task_ids_in_order):
+                conn.execute(
+                    "UPDATE tasks SET order_idx = ? WHERE id = ? AND plan_id = ?",
+                    (idx, tid, plan_id),
+                )
+            conn.commit()
+
+    # ── Notes CRUD ──
+
+    def create_note(
+        self, title: str, content: str = "", folder_id: str = "",
+        source: str = "manual", linked_kp: str = "",
+    ) -> str:
+        nid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO notes (id, folder_id, title, content, source, linked_kp)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (nid, folder_id or None, title, content, source, linked_kp or None),
+            )
+            conn.execute(
+                """INSERT INTO notes_fts (rowid, title, content)
+                   VALUES ((SELECT rowid FROM notes WHERE id = ?), ?, ?)""",
+                (nid, title, content),
+            )
+            conn.commit()
+        return nid
+
+    def get_note(self, note_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM notes WHERE id = ?", (note_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_notes(self, folder_id: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if folder_id:
+                rows = conn.execute(
+                    "SELECT * FROM notes WHERE folder_id = ? ORDER BY updated_at DESC",
+                    (folder_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM notes ORDER BY updated_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_note(self, note_id: str, **fields) -> None:
+        allowed = {"title", "content", "folder_id", "linked_kp"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values())
+        with self._conn() as conn:
+            conn.execute(
+                f"""UPDATE notes SET {set_clause},
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                    WHERE id = ?""",
+                values + [note_id],
+            )
+            if "title" in updates or "content" in updates:
+                note = conn.execute(
+                    "SELECT title, content FROM notes WHERE id = ?", (note_id,)
+                ).fetchone()
+                if note:
+                    conn.execute(
+                        """UPDATE notes_fts SET title = ?, content = ?
+                           WHERE rowid = (SELECT rowid FROM notes WHERE id = ?)""",
+                        (note["title"], note["content"], note_id),
+                    )
+            conn.commit()
+
+    def delete_note(self, note_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            conn.commit()
+
+    def search_notes(self, query: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT n.* FROM notes_fts fts
+                   JOIN notes n ON n.rowid = fts.rowid
+                   WHERE notes_fts MATCH ?
+                   ORDER BY n.updated_at DESC""",
+                (query,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Folders CRUD ──
+
+    def create_folder(self, name: str, parent_id: str = "") -> str:
+        fid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO folders (id, name, parent_id) VALUES (?, ?, ?)",
+                (fid, name, parent_id or None),
+            )
+            conn.commit()
+        return fid
+
+    def list_folders(self) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM folders ORDER BY name").fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_folder(self, folder_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+            conn.commit()
+
+    # ── Quiz CRUD ──
+
+    def create_question(
+        self, question_type: str, question: str, options: str,
+        answer: str, explanation: str = "", knowledge_points: str = "",
+        plan_id: str = "", task_id: str = "",
+    ) -> str:
+        qid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO quiz_questions
+                   (id, plan_id, task_id, question_type, question, options, answer, explanation, knowledge_points)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (qid, plan_id or None, task_id or None,
+                 question_type, question, options, answer, explanation, knowledge_points),
+            )
+            conn.commit()
+        return qid
+
+    def get_question(self, question_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM quiz_questions WHERE id = ?", (question_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_questions(self, plan_id: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if plan_id:
+                rows = conn.execute(
+                    "SELECT * FROM quiz_questions WHERE plan_id = ? ORDER BY created_at DESC",
+                    (plan_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM quiz_questions ORDER BY created_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def record_answer(
+        self, question_id: str, user_answer: str, is_correct: bool,
+        error_reason: str = "",
+    ) -> str:
+        aid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO quiz_answers (id, question_id, user_answer, is_correct, error_reason)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (aid, question_id, user_answer, 1 if is_correct else 0, error_reason),
+            )
+            conn.commit()
+        return aid
+
+    def list_answers(self, question_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM quiz_answers WHERE question_id = ? ORDER BY created_at",
+                (question_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_wrong_answers(self) -> list[dict]:
+        """Get all wrong answers joined with question details."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT a.*, q.question, q.question_type, q.options,
+                          q.answer as correct_answer, q.explanation, q.knowledge_points
+                   FROM quiz_answers a
+                   JOIN quiz_questions q ON a.question_id = q.id
+                   WHERE a.is_correct = 0
+                   ORDER BY a.created_at DESC"""
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Study Sessions ──
+
+    def record_study_session(
+        self, started_at: str, duration_seconds: int,
+        task_id: str = "", plan_id: str = "", pomodoro_count: int = 0,
+    ) -> str:
+        sid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO study_sessions
+                   (id, task_id, plan_id, started_at, duration_seconds, pomodoro_count)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (sid, task_id or None, plan_id or None,
+                 started_at, duration_seconds, pomodoro_count),
+            )
+            conn.commit()
+        return sid
+
+    def get_study_sessions(self, plan_id: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if plan_id:
+                rows = conn.execute(
+                    "SELECT * FROM study_sessions WHERE plan_id = ? ORDER BY started_at DESC",
+                    (plan_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM study_sessions ORDER BY started_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_total_study_time(self) -> int:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(duration_seconds), 0) as total FROM study_sessions"
+            ).fetchone()
+            return row["total"]
+
+    # ── Checkins ──
+
+    def checkin(self, date_str: str, task_ids_completed: str = "[]") -> str:
+        cid = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO checkins (id, date, task_ids_completed) VALUES (?, ?, ?)",
+                (cid, date_str, task_ids_completed),
+            )
+            conn.commit()
+        return cid
+
+    def get_checkins(self, month: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if month:
+                rows = conn.execute(
+                    "SELECT * FROM checkins WHERE date LIKE ? ORDER BY date",
+                    (f"{month}%",),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM checkins ORDER BY date DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_streak(self) -> int:
+        """Calculate current consecutive-day streak ending today."""
+        from datetime import date, timedelta
+        with self._conn() as conn:
+            today = date.today()
+            streak = 0
+            d = today
+            while True:
+                row = conn.execute(
+                    "SELECT 1 FROM checkins WHERE date = ?", (d.isoformat(),)
+                ).fetchone()
+                if row:
+                    streak += 1
+                    d -= timedelta(days=1)
+                else:
+                    break
+            return streak
+
+    def get_checkin_heatmap(self, month: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT date, task_ids_completed FROM checkins WHERE date LIKE ? ORDER BY date",
+                (f"{month}%",),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Knowledge Points ──
+
+    def upsert_kp(self, plan_id: str, name: str, mastery_level: int = 0) -> str:
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM knowledge_points WHERE plan_id = ? AND name = ?",
+                (plan_id, name),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE knowledge_points SET mastery_level = ?,
+                        last_reviewed = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                        WHERE id = ?""",
+                    (mastery_level, existing["id"]),
+                )
+                conn.commit()
+                return existing["id"]
+            else:
+                kid = str(uuid.uuid4())
+                conn.execute(
+                    """INSERT INTO knowledge_points (id, plan_id, name, mastery_level)
+                       VALUES (?, ?, ?, ?)""",
+                    (kid, plan_id, name, mastery_level),
+                )
+                conn.commit()
+                return kid
+
+    def get_kp(self, plan_id: str, name: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM knowledge_points WHERE plan_id = ? AND name = ?",
+                (plan_id, name),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_kps(self, plan_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM knowledge_points WHERE plan_id = ? ORDER BY name",
+                (plan_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
