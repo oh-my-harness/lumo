@@ -1,5 +1,9 @@
-/target
-Cargo.lock
+# target
 *.apk
 *.aab
 .cxx/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
