@@ -25,16 +25,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platforms;android-34
-            build-tools;34.0.0
 
       - name: Fetch Senza wheels
         working-directory: android
         run: |
           mkdir -p senza-wheel
-          gh release download --repo oh-my-harness/Senza v1.0.2 \
+          gh release download --repo oh-my-harness/Senza --latest \
             --pattern 'senza_sdk-*-android_24_arm64_v8a.whl' \
             --pattern 'senza_sdk-*-android_24_x86_64.whl' \
             --dir senza-wheel --clobber
