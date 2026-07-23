@@ -18,6 +18,7 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiKey = System.getenv("OPENAI_API_KEY") ?: "sk-placeholder"
         val apiBase = System.getenv("OPENAI_API_BASE") ?: "http://api.hyper-op.com/"
         val modelName = System.getenv("OPENAI_MODEL") ?: "glm-5.2"
@@ -85,4 +86,10 @@ dependencies {
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
+    // Testing
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

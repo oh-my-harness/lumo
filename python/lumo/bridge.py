@@ -508,10 +508,19 @@ def record_pomodoro(task_id: str, plan_id: str, duration_seconds: int,
     )
 
 
-def checkin_today(task_ids_json: str = "[]") -> str:
-    """Check in for today with completed task IDs."""
+def checkin_today(task_ids=None) -> str:
+    """Check in for today with completed task IDs.
+    Accepts a JSON string or None.
+    """
     from datetime import date
     today = date.today().isoformat()
+    if task_ids is None:
+        task_ids_json = "[]"
+    elif isinstance(task_ids, str):
+        task_ids_json = task_ids
+    else:
+        # Fallback: try to serialize any iterable
+        task_ids_json = json.dumps(list(task_ids))
     return _ensure_store().checkin(today, task_ids_json)
 
 

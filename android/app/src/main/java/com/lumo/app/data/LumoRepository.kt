@@ -30,6 +30,8 @@ class LumoRepository private constructor(private val py: Python) {
     }
 
     private fun bridge() = py.getModule("lumo.bridge")
+    /** Public accessor for tests. */
+    fun pyBridge() = bridge()
 
     /** Convert a Chaquopy PyObject map to Map<String, String?> with proper toString(). */
     private fun PyObject.toStringMap(): Map<String, String?> =
@@ -116,7 +118,13 @@ class LumoRepository private constructor(private val py: Python) {
     fun gradeAnswer(questionId: String, userAnswer: String): Map<String, Any?> {
         val result = bridge().callAttr("grade_answer", questionId, userAnswer)
         return result.asMap().entries.associate { (k, v) ->
-            k.toString() to (v as? Any)
+            val converted = when {
+                v == null -> null
+                v.toString() == "True" -> true
+                v.toString() == "False" -> false
+                else -> v as? Any
+            }
+            k.toString() to converted
         }
     }
 
@@ -132,7 +140,9 @@ class LumoRepository private constructor(private val py: Python) {
     fun getCheckinHeatmap(month: String): List<Map<String, String?>> =
         bridge().callAttr("get_checkin_heatmap", month).toStringMapList()
     fun checkinToday(taskIds: List<String>) {
-        bridge().callAttr("checkin_today", taskIds)
+        // Convert to JSON string — Chaquopy can't pass Kotlin List as Python list
+        val json = org.json.JSONArray(taskIds).toString()
+        bridge().callAttr("checkin_today", json)
     }
     fun recordPomodoro(taskId: String, planId: String, durationSec: Int, startedAt: String) {
         bridge().callAttr("record_pomodoro", taskId, planId, durationSec, startedAt)

@@ -540,6 +540,19 @@ class Store:
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values())
         with self._conn() as conn:
+            # FTS5 external content tables: must delete the old indexed row
+            # (using its current values) BEFORE updating the parent row,
+            # then re-insert with the new values after.
+            if self._has_fts5 and ("title" in updates or "content" in updates):
+                old = conn.execute(
+                    "SELECT rowid, title, content FROM notes WHERE id = ?", (note_id,)
+                ).fetchone()
+                if old:
+                    conn.execute(
+                        "INSERT INTO notes_fts(notes_fts, rowid, title, content) "
+                        "VALUES('delete', ?, ?, ?)",
+                        (old["rowid"], old["title"], old["content"]),
+                    )
             conn.execute(
                 f"""UPDATE notes SET {set_clause},
                     updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
@@ -547,19 +560,28 @@ class Store:
                 values + [note_id],
             )
             if self._has_fts5 and ("title" in updates or "content" in updates):
-                note = conn.execute(
-                    "SELECT title, content FROM notes WHERE id = ?", (note_id,)
+                new = conn.execute(
+                    "SELECT rowid, title, content FROM notes WHERE id = ?", (note_id,)
                 ).fetchone()
-                if note:
+                if new:
                     conn.execute(
-                        """UPDATE notes_fts SET title = ?, content = ?
-                           WHERE rowid = (SELECT rowid FROM notes WHERE id = ?)""",
-                        (note["title"], note["content"], note_id),
+                        "INSERT INTO notes_fts(rowid, title, content) VALUES (?, ?, ?)",
+                        (new["rowid"], new["title"], new["content"]),
                     )
             conn.commit()
 
     def delete_note(self, note_id: str) -> None:
         with self._conn() as conn:
+            if self._has_fts5:
+                row = conn.execute(
+                    "SELECT rowid, title, content FROM notes WHERE id = ?", (note_id,)
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        "INSERT INTO notes_fts(notes_fts, rowid, title, content) "
+                        "VALUES('delete', ?, ?, ?)",
+                        (row["rowid"], row["title"], row["content"]),
+                    )
             conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             conn.commit()
 
