@@ -55,7 +55,7 @@ chaquopy {
             // by package name from the find-links directory.
             options("--find-links", "${rootProject.projectDir}/senza-wheel")
             install("aiohttp")
-            install("${rootProject.projectDir}/senza-wheel/senza_sdk-1.0.0-cp39-abi3-android_24_arm64_v8a.whl")
+            install("senza-sdk")
         }
     }
     sourceSets {
