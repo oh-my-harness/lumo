@@ -169,24 +169,40 @@ fun QuizScreen() {
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                // Knowledge point filter chips (scrollable)
-                androidx.compose.foundation.lazy.LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Knowledge point filter dropdown
+                var kpDropdownExpanded by remember { mutableStateOf(false) }
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 ) {
-                    item {
-                        FilterChip(
-                            selected = filterKp == null,
-                            onClick = { filterKp = null },
-                            label = { Text("全部", fontSize = 11.sp) }
+                    OutlinedButton(
+                        onClick = { kpDropdownExpanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Filled.Category, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            filterKp ?: "全部分类",
+                            fontSize = 12.sp,
+                            maxLines = 1
                         )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
                     }
-                    items(allKnowledgePoints) { kp ->
-                        FilterChip(
-                            selected = filterKp == kp,
-                            onClick = { filterKp = if (filterKp == kp) null else kp },
-                            label = { Text(kp, fontSize = 11.sp, maxLines = 1) }
+                    DropdownMenu(
+                        expanded = kpDropdownExpanded,
+                        onDismissRequest = { kpDropdownExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("全部") },
+                            onClick = { filterKp = null; kpDropdownExpanded = false }
                         )
+                        allKnowledgePoints.forEach { kp ->
+                            DropdownMenuItem(
+                                text = { Text(kp, fontSize = 12.sp) },
+                                onClick = { filterKp = kp; kpDropdownExpanded = false }
+                            )
+                        }
                     }
                 }
 

@@ -251,7 +251,7 @@ _chat_session = None
 
 
 def _maybe_update_title(text: str) -> None:
-    """Auto-set session title from the first user message if title is empty/default."""
+    """Auto-set session title from the first user message using LLM."""
     if _chat_session is None:
         return
     store = _ensure_store()
@@ -261,11 +261,23 @@ def _maybe_update_title(text: str) -> None:
     title = (session.get("title") or "").strip()
     if title and title != "新对话":
         return
-    # Use first ~20 chars of the user message as title
-    snippet = text.strip().replace("\n", " ")[:20]
-    if len(text.strip()) > 20:
-        snippet += "..."
-    store.update_session_title(_chat_session._session_id, snippet)
+    # Check if this is the first message (no existing messages)
+    history = store.get_messages(_chat_session._session_id)
+    if len(history) > 0:
+        return
+    # Generate title via LLM
+    try:
+        from lumo.agent import generate_title
+        from lumo.config import get_provider_config
+        config = get_provider_config(store)
+        if config is None:
+            return
+        new_title = generate_title(config, text)
+        store.update_session_title(_chat_session._session_id, new_title)
+    except Exception:
+        # Fallback: use first 20 chars
+        snippet = text.strip().replace("\n", " ")[:20]
+        store.update_session_title(_chat_session._session_id, snippet)
 
 def start_chat(session_id: str) -> None:
     """Start a chat session. Creates a ChatSession with the current provider config."""

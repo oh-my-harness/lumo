@@ -292,3 +292,22 @@ def summarize_notes(store, config: ProviderConfig, note_ids: list[str]) -> str:
             text += event.get("text", "")
 
     return text
+
+
+def generate_title(config: ProviderConfig, user_message: str) -> str:
+    """Use LLM to generate a short title (<=20 chars) from the first user message."""
+    provider = create_provider(config)
+    harness = (
+        senza.HarnessBuilder(config.model)
+        .provider("*", provider)
+        .system_prompt("你是对话标题生成器。根据用户消息生成一个20字以内的中文标题。只输出标题，不要引号、不要标点。")
+        .max_tokens(50)
+        .build()
+    )
+    events = harness.prompt_and_collect(user_message, timeout_ms=15000)
+    text = ""
+    for event in events:
+        if event["type"] == "text_delta":
+            text += event.get("text", "")
+    title = text.strip().strip("\"'""''").strip()
+    return title[:20] if title else user_message[:20]
