@@ -31,6 +31,7 @@ data class TabItem(val route: String, val title: String, val icon: androidx.comp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LumoRepository.init(this)
         enableEdgeToEdge()
         setContent {
             LumoTheme {
