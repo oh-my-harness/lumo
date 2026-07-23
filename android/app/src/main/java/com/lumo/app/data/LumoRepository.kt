@@ -167,9 +167,27 @@ class LumoRepository private constructor(private val py: Python) {
         bridge().callAttr("get_checkin_heatmap", month).toStringMapList()
     fun getStudyTrend(period: String = "week"): Map<String, Any?> {
         val result = bridge().callAttr("get_study_trend", period)
-        return result.asMap().entries.associate { (k, v) ->
-            k.toString() to (v as? Any)
+        val rawMap = result.asMap()
+        val converted = mutableMapOf<String, Any?>()
+        for ((k, v) in rawMap) {
+            val key = k.toString()
+            // v is "data" (a nested Python dict) — convert via asMap()
+            if (key == "data" && v != null) {
+                try {
+                    val nested = (v as PyObject).asMap()
+                    val dataMap = mutableMapOf<String, Int>()
+                    for ((dk, dv) in nested) {
+                        dataMap[dk.toString()] = (dv?.toString()?.toIntOrNull() ?: 0)
+                    }
+                    converted[key] = dataMap
+                } catch (e: Exception) {
+                    converted[key] = emptyMap<String, Int>()
+                }
+            } else {
+                converted[key] = v?.toString()
+            }
         }
+        return converted
     }
     fun getKnowledgeMastery(planId: String): List<Map<String, String?>> =
         bridge().callAttr("get_knowledge_mastery", planId).toStringMapList()

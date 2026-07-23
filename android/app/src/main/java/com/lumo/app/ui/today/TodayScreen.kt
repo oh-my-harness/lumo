@@ -1,7 +1,9 @@
 package com.lumo.app.ui.today
 
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,7 +45,7 @@ fun TodayScreen() {
         loading = false
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         // Header: streak + study time
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -153,23 +155,21 @@ fun TodayScreen() {
             }
         } else if (tasks.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("暂无任务\n去「我的」创建学习计划吧", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("暂无任务\n在下方「学习计划」创建一个吧", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Group by plan_title
                 val grouped = tasks.groupBy { it["plan_title"] ?: "未分组" }
                 grouped.forEach { (planTitle, planTasks) ->
-                    item {
-                        Text(
-                            planTitle,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                        )
-                    }
-                    items(planTasks) { task ->
+                    Text(
+                        planTitle,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+                    planTasks.forEach { task ->
                         TaskCard(
                             task = task,
                             onComplete = { taskId ->
@@ -287,10 +287,10 @@ fun TodayScreen() {
                 }
                 trend?.let { t ->
                     @Suppress("UNCHECKED_CAST")
-                    val data = t["data"] as? Map<String, Any> ?: emptyMap()
-                    val maxVal = ((data.values.mapNotNull { it as? Int }.maxOrNull()) ?: 1).coerceAtLeast(1)
+                    val data = t["data"] as? Map<String, Int> ?: emptyMap()
+                    val maxVal = (data.values.maxOrNull() ?: 1).coerceAtLeast(1)
                     data.entries.toList().takeLast(7).forEach { (date, seconds) ->
-                        val mins = ((seconds as? Int) ?: 0) / 60
+                        val mins = seconds / 60
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
