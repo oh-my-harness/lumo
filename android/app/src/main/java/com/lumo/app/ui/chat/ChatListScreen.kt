@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.lumo.app.data.LumoRepository
+import com.lumo.app.ui.markdown.MarkdownRenderer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +91,12 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
             quickPrompts = repo.getQuickPrompts()
         } catch (e: Exception) {}
     }
+    val listState = rememberLazyListState()
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -101,6 +109,7 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         )
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -114,12 +123,19 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                         else MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
-                    Text(
-                        msg["content"] ?: "",
-                        modifier = Modifier.padding(12.dp),
-                        color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (isUser) {
+                        Text(
+                            msg["content"] ?: "",
+                            modifier = Modifier.padding(12.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    } else {
+                        MarkdownRenderer(
+                            content = msg["content"] ?: "",
+                            modifier = Modifier.padding(12.dp),
+                            isDarkTheme = false,
+                        )
+                    }
                 }
             }
             if (loading) {
@@ -147,32 +163,50 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                 modifier = Modifier.weight(1f), placeholder = { Text("输入消息...") }, maxLines = 3
             )
             Spacer(modifier = Modifier.width(8.dp))
+            val sendIcon = if (loading) Icons.Filled.Stop else Icons.Filled.Send
             IconButton(onClick = {
-                if (inputText.isNotBlank() && !loading) {
+                if (loading) {
+                    // 停止生成
+                    scope.launch { withContext(Dispatchers.IO) { repo.abortChat() } }
+                    return@IconButton
+                }
+                if (inputText.isNotBlank()) {
                     val text = inputText
                     inputText = ""
                     scope.launch {
                         loading = true
                         try {
                             if (!chatStarted) {
-                                android.util.Log.i("LumoChat", "startChat sessionId=$sessionId")
                                 withContext(Dispatchers.IO) { repo.startChat(sessionId) }
                                 chatStarted = true
-                                android.util.Log.i("LumoChat", "startChat OK")
                             }
                             messages = messages + mapOf("role" to "user", "content" to text)
-                            android.util.Log.i("LumoChat", "sendMessage: $text")
-                            val response = withContext(Dispatchers.IO) { repo.sendMessage(text) }
-                            android.util.Log.i("LumoChat", "sendMessage response: ${response.take(100)}")
-                            messages = messages + mapOf("role" to "assistant", "content" to response)
+                            // 流式：先插入空的 AI 消息，逐 token 更新
+                            val aiIndex = messages.size
+                            messages = messages + mapOf("role" to "assistant", "content" to "")
+                            val fullResponse = withContext(Dispatchers.IO) {
+                                repo.streamChat(text) { token ->
+                                    val current = messages[aiIndex]["content"] ?: ""
+                                    messages = messages.toMutableList().also {
+                                        it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
+                                            m["content"] = current + token
+                                        }
+                                    }
+                                }
+                            }
+                            // 确保最终内容完整（防止 token 回调遗漏）
+                            messages = messages.toMutableList().also {
+                                it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
+                                    m["content"] = fullResponse
+                                }
+                            }
                         } catch (e: Exception) {
-                            android.util.Log.e("LumoChat", "chat error", e)
                             messages = messages + mapOf("role" to "assistant", "content" to "错误: ${e.message}")
                         }
                         loading = false
                     }
                 }
-            }) { Icon(Icons.Filled.Send, contentDescription = "发送") }
+            }) { Icon(sendIcon, contentDescription = if (loading) "停止" else "发送") }
         }
     }
 }

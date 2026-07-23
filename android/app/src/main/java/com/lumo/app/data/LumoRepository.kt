@@ -76,6 +76,15 @@ class LumoRepository private constructor(private val py: Python) {
     // ── Chat ──
     fun startChat(sessionId: String) = bridge().callAttr("start_chat", sessionId)
     fun sendMessage(text: String): String = bridge().callAttr("send_message", text).toString()
+    fun streamChat(text: String, onToken: (String) -> Unit): String {
+        val callback = object : Any() {
+            @Suppress("unused")
+            fun onToken(token: String) {
+                onToken.invoke(token)
+            }
+        }
+        return bridge().callAttr("stream_chat", text, callback).toString()
+    }
     fun getQuickPrompts(): List<Map<String, String>> =
         bridge().callAttr("get_quick_prompts").asList()
             .map { it.toNonNullableStringMap() }
