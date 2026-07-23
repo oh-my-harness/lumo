@@ -15,7 +15,7 @@ android {
         targetSdk = 34
         versionName = "0.1.0"
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         val apiKey = System.getenv("OPENAI_API_KEY") ?: "sk-placeholder"
@@ -46,6 +46,14 @@ chaquopy {
     defaultConfig {
         version = "3.12"
         pip {
+            // Senza Android wheels — fetched from GitHub Releases.
+            // Run scripts/fetch_senza_wheels.sh before building.
+            //
+            // --find-links lets Chaquopy find the correct ABI wheel for each
+            // target (arm64-v8a + x86_64) when it re-installs native packages.
+            // We only pass one wheel filename as --req; the other is resolved
+            // by package name from the find-links directory.
+            options("--find-links", "${rootProject.projectDir}/senza-wheel")
             install("aiohttp")
             install("${rootProject.projectDir}/senza-wheel/senza_sdk-1.0.0-cp39-abi3-android_24_arm64_v8a.whl")
         }

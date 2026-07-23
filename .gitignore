@@ -15,6 +15,9 @@ local.properties
 *.keystore
 *.jks
 
+# Senza wheels — fetched from GitHub Releases, not committed
+android/senza-wheel/
+
 # IDE
 .idea/
 *.iml
