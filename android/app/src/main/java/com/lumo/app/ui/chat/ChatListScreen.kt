@@ -3,6 +3,7 @@ package com.lumo.app.ui.chat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -292,11 +293,16 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         }
 
         if (messages.isNotEmpty() && !loading) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                quickPrompts.take(4).forEach { prompt ->
-                    AssistChip(onClick = { inputText = prompt["prompt"] ?: "" },
-                        label = { Text(prompt["label"] ?: "", fontSize = 12.sp) })
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                items(quickPrompts) { prompt ->
+                    AssistChip(
+                        onClick = { inputText = prompt["prompt"] ?: "" },
+                        label = { Text(prompt["label"] ?: "") }
+                    )
                 }
             }
         }
