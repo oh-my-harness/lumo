@@ -92,20 +92,27 @@ fun QuizScreen() {
     }
 
     var searchQuery by remember { mutableStateOf("") }
-    var filterType by remember { mutableStateOf<String?>(null) }
+    var filterKp by remember { mutableStateOf<String?>(null) }
 
-    val typeLabels = remember {
-        mapOf(
-            "single_choice" to "单选",
-            "multi_choice" to "多选",
-            "true_false" to "判断",
-            "short_answer" to "简答",
-        )
+    // Extract all distinct knowledge points from questions
+    val allKnowledgePoints = remember(questions) {
+        val set = linkedSetOf<String>()
+        for (q in questions) {
+            val kps = q["knowledge_points"]
+            if (!kps.isNullOrEmpty()) {
+                try {
+                    JSONArray(kps).let { arr ->
+                        (0 until arr.length()).map { arr.getString(it) }
+                    }.forEach { set.add(it) }
+                } catch (e: Exception) {}
+            }
+        }
+        set.toList()
     }
 
-    val filteredQuestions = remember(questions, searchQuery, filterType) {
+    val filteredQuestions = remember(questions, searchQuery, filterKp) {
         questions.filter { q ->
-            (filterType == null || q["question_type"] == filterType) &&
+            (filterKp == null || q["knowledge_points"]?.contains(filterKp!!) == true) &&
             (searchQuery.isBlank() ||
              (q["question"]?.contains(searchQuery, ignoreCase = true) == true) ||
              (q["knowledge_points"]?.contains(searchQuery, ignoreCase = true) == true))
@@ -162,21 +169,23 @@ fun QuizScreen() {
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                // Type filter chips
-                Row(
+                // Knowledge point filter chips (scrollable)
+                androidx.compose.foundation.lazy.LazyRow(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FilterChip(
-                        selected = filterType == null,
-                        onClick = { filterType = null },
-                        label = { Text("全部", fontSize = 11.sp) }
-                    )
-                    typeLabels.forEach { (type, label) ->
+                    item {
                         FilterChip(
-                            selected = filterType == type,
-                            onClick = { filterType = if (filterType == type) null else type },
-                            label = { Text(label, fontSize = 11.sp) }
+                            selected = filterKp == null,
+                            onClick = { filterKp = null },
+                            label = { Text("全部", fontSize = 11.sp) }
+                        )
+                    }
+                    items(allKnowledgePoints) { kp ->
+                        FilterChip(
+                            selected = filterKp == kp,
+                            onClick = { filterKp = if (filterKp == kp) null else kp },
+                            label = { Text(kp, fontSize = 11.sp, maxLines = 1) }
                         )
                     }
                 }
@@ -197,7 +206,13 @@ fun QuizScreen() {
                         items(filteredQuestions) { question ->
                             val qid = question["id"] ?: return@items
                             val qType = question["question_type"] ?: "single_choice"
-                            val qTypeLabel = typeLabels[qType] ?: qType
+                            val qTypeLabel = when (qType) {
+                                "single_choice" -> "单选"
+                                "multi_choice" -> "多选"
+                                "true_false" -> "判断"
+                                "short_answer" -> "简答"
+                                else -> qType
+                            }
                             val gradeResult = gradeResults[qid]
                             val isCorrect = gradeResult?.let { g ->
                                 val c = g["is_correct"]
