@@ -102,6 +102,10 @@ def send_message(text: str) -> str:
     if _chat_session is None:
         raise RuntimeError("Chat not started. Call start_chat first.")
     _maybe_update_title(text)
+    # Persist the user message before sending (after_turn_hook may only
+    # capture assistant replies depending on the Senza harness version).
+    from lumo.bridge import _ensure_store
+    _ensure_store().add_message(_chat_session._session_id, "user", text)
     return _chat_session.send_message(text)
 
 
@@ -110,6 +114,9 @@ def stream_chat(text: str, callback) -> str:
     if _chat_session is None:
         raise RuntimeError("Chat not started. Call start_chat first.")
     _maybe_update_title(text)
+    # Persist the user message before sending.
+    from lumo.bridge import _ensure_store
+    _ensure_store().add_message(_chat_session._session_id, "user", text)
     return _chat_session.stream_message(text, on_token=callback.onToken)
 
 
