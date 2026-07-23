@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -240,15 +241,23 @@ fun TodayScreen() {
 
     // Create plan dialog
     if (showCreatePlan) {
-        CreatePlanScreen(
-            onSave = { _, _, _, _, _ ->
-                scope.launch {
-                    try { plans = repo.listPlans() } catch (e: Exception) {}
-                    showCreatePlan = false
-                }
-            },
-            onBack = { showCreatePlan = false }
-        )
+        Dialog(onDismissRequest = { showCreatePlan = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                CreatePlanScreen(
+                    onSave = { _, _, _, _, _ ->
+                        scope.launch {
+                            try { plans = repo.listPlans() } catch (e: Exception) {}
+                            showCreatePlan = false
+                        }
+                    },
+                    onBack = { showCreatePlan = false }
+                )
+            }
+        }
     }
 }
 
