@@ -129,7 +129,7 @@ android (Kotlin) → Chaquopy → lumo.agent → senza
 | 智能测验 | 出题、判分、AI 解析（WorkflowEngine） | lumo.workflows |
 | 学习笔记 | AI 摘要 + 对话总结为笔记 + 粘贴导入 | lumo.agent + lumo.store |
 | 学习统计 | 纯本地（数据聚合查询） | lumo.store |
-| 模型配置 | provider 存储 + 连通性验证 | lumo.agent |
+| 模型配置 + 一键购买 Token | provider 存储 + 连通性验证 + DeepSeek 充值跳转引导 | lumo.agent + Kotlin |
 
 ### P1 — 重要功能（MVP 后迭代）
 
@@ -185,7 +185,163 @@ MVVM + Repository：
 
 所有业务逻辑和存储在 Python 层，Kotlin 侧只做 UI 渲染和交互。
 
-## 七、后台执行策略
+## 七、设计系统（P0 必须到位）
+
+P0 就要把 UI 做漂亮——不是"功能完成后再打磨"，而是 **视觉质量本身就是 PMF 验证的一部分**。用户对一个新 App 的信任感在前 3 秒就决定了。
+
+### 7.1 设计原则
+
+| 原则 | 含义 | 落地 |
+|------|------|------|
+| **克制** | 留白 > 装饰。每屏只有一个视觉焦点 | 大间距、少边框、不堆砌 |
+| **温度感** | 不是冷冰冰的工具，是陪伴你的学习教练 | 暖色调 accent、圆角、柔和阴影 |
+| **呼吸感** | 内容不贴边、不挤压 | 24dp 屏幕边距、卡片间距 12dp |
+| **动效有意义** | 不为动而动，每个动效传达状态变化 | 番茄钟 → 呼吸；计划生成 → 进度脉冲 |
+| **暗色优先** | 深夜学习是核心场景 | 暗色模式为默认，亮色为辅 |
+
+### 7.2 色彩系统
+
+不用 Material3 默认紫色。自定义品牌色：
+
+```
+亮色模式：
+  primary    = #5B7FFF（信任蓝 — 知识感）
+  secondary  = #8B5CF6（记忆紫 — AI 感）
+  tertiary   = #FF8A5C（活力橙 — 学习动力感）
+  background = #FAFAFB（暖白）
+  surface    = #FFFFFF
+  onSurface  = #1A1A2E
+  outline    = #E5E5EA
+
+暗色模式（默认）：
+  primary    = #7B9FFF
+  secondary  = #A78BFA
+  tertiary   = #FFA873
+  background = #0F0F1A（深邃黑蓝 — 深夜不刺眼）
+  surface    = #1A1A2E
+  surfaceVariant = #252540
+  onSurface  = #E4E4F0
+  outline    = #353550
+```
+
+- `background` 暗色用 #0F0F1A 而非纯黑——减少 OLED 对比度疲劳
+- `surface` 比 `background` 亮一档——卡片有层次但不突兀
+- accent 三色（蓝/紫/橙）用于不同语义：蓝=操作、紫=AI 生成内容、橙=学习动力/打卡/Streak
+
+### 7.3 字体系统
+
+不用系统默认 Roboto。P0 引入自定义字体 + 明确层级：
+
+| 层级 | 用途 | 字号 | 字重 | 行高 |
+|------|------|------|------|------|
+| Display | 年度报告大标题 | 32sp | Bold | 40sp |
+| Headline | 页面标题 | 24sp | SemiBold | 32sp |
+| Title | 卡片标题/任务标题 | 16sp | SemiBold | 24sp |
+| Body | 笔记正文/对话内容 | 15sp | Regular | 24sp |
+| Label | 标签/按钮 | 13sp | Medium | 18sp |
+| Caption | 时间/辅助信息 | 12sp | Regular | 16sp |
+
+- 中文用 **思源黑体 / Noto Sans SC**（开源、免费、覆盖全）
+- 英文/数字用 **Inter**（几何无衬线、现代感）
+- 代码块用 **JetBrains Mono**
+- 字体打包进 APK（不依赖系统字体，保证一致性）
+
+### 7.4 形状与圆角
+
+| 元素 | 圆角 | 说明 |
+|------|------|------|
+| 卡片 | 16dp | 主内容载体，柔和但不失结构 |
+| 按钮 | 12dp | 可点击元素，比卡片小一档 |
+| 输入框 | 12dp | 与按钮一致 |
+| 标签 chip | 8dp | 小元素，微圆角 |
+| 底部 Sheet | 24dp（顶部） | 模态弹出 |
+| FAB | 50% | 圆形浮动按钮 |
+
+不用 Material3 的 `Shapes` 默认值（4dp/8dp/16dp），整体圆角偏大——营造柔和、温暖的调性。
+
+### 7.5 间距系统
+
+统一用 4dp 基准网格：
+
+| Token | 值 | 用途 |
+|-------|---|------|
+| `xs` | 4dp | chip 内间距、图标间距 |
+| `sm` | 8dp | 列表项内元素间距 |
+| `md` | 12dp | 卡片间距 |
+| `lg` | 16dp | 卡片内 padding |
+| `xl` | 24dp | 屏幕水平边距、section 间距 |
+| `xxl` | 32dp | 页面顶部/底部留白 |
+
+### 7.6 阴影与层次
+
+暗色模式下阴影不可见，改用 `surfaceVariant` 背景色区分层次：
+
+```
+Level 0: background  (#0F0F1A) — 页面底
+Level 1: surface     (#1A1A2E) — 卡片
+Level 2: surfaceVariant (#252540) — 弹出层/选中态
+Level 3: elevation + 微弱阴影 — 底部 Sheet / Dialog
+```
+
+亮色模式下用传统 elevation 阴影，但阴影颜色用 `primary` 的 10% 透明度（带色调的阴影，比灰色阴影更精致）。
+
+### 7.7 动效规范
+
+| 场景 | 动效 | 时长 | 缓动 |
+|------|------|------|------|
+| 页面切换 | 淡入淡出 | 200ms | FastOutSlowIn |
+| 新任务出现 | 从下方淡入上滑 | 250ms | FastOutSlowIn |
+| 番茄钟运行中 | 呼吸缩放 | 2000ms 循环 | FastOutSlowIn |
+| 打卡成功 | 缩放弹跳 | 300ms | Overshoot |
+| Streak 数字变化 | 数字滚动 | 400ms | FastOutSlowIn |
+| AI 流式输出 | 光标闪烁 + 文字淡入 | 50ms/字 | Linear |
+| 计划生成进度 | 脉冲呼吸 | 1200ms 循环 | Linear |
+| 底部 Sheet 弹出 | 从下滑入 | 250ms | FastOutSlowIn |
+
+用 Compose `AnimatedVisibility` / `animateContentSize` / `Crossfade` 实现，不引入 Lottie（P0 不需要复杂动画）。
+
+### 7.8 关键页面视觉描述
+
+**今日页（首页）**：
+- 深色背景，顶部学习进度环形图（primary 色，圆角 16dp 卡片承载）
+- 今日任务看板：按 plan 分组的任务卡片，每张卡片左侧有状态色条（待学=灰/进行中=蓝/已完成=绿/待复习=橙）
+- 底部固定区：打卡 Streak 火焰图标（tertiary 橙色）+ 今日学习时长
+- 番茄钟运行时：页面底部弹出迷你计时条，呼吸动画
+
+**对话页**：
+- 深色背景，AI 回复用 surface 色卡片（左对齐），用户消息用 primary 色卡片（右对齐）
+- 流式输出时光标闪烁，文字逐字淡入
+- 快捷提问按钮横排（讲解一下/举个例子/出几道题/我不理解），圆角 chip
+- 底部输入框，圆角 12dp，发送按钮 primary 色
+
+**题库答题页**：
+- 深色背景，题目卡片居中，选项纵向排列
+- 选中选项高亮 primary 色，判分后正确=绿/错误=红
+- AI 解析用 secondary 色卡片区分
+- 进度条在顶部，primary 色
+
+**模型配置引导页**：
+- 全屏居中布局，大标题"开始使用 Lumo"
+- DeepSeek 购买按钮：primary 色实心按钮，带 arrow 图标
+- 3 步引导：图标 + 文字纵向排列，步骤间用虚线连接
+- API Key 输入框：检测到剪贴板有 `sk-` 开头时弹出"检测到 Key，是否粘贴"
+
+### 7.9 图标
+
+- 用 **Material Symbols Rounded**（圆角风格，匹配整体柔和调性）
+- 不用默认 Material Icons（太方正）
+- Tab 栏图标选中态填充色，未选中态轮廓线
+- 自定义图标：番茄钟用沙漏 + 进度环
+
+### 7.10 实现约束
+
+- 主题定义在 `ui/theme/` 下：`Color.kt` / `Type.kt` / `Shape.kt` / `Theme.kt`（当前 `Theme.kt` 用 Material3 默认紫色，需替换）
+- 间距用 `Dimensions.kt` 统一定义 Token，不硬编码 dp 值
+- 暗色模式为默认（`isSystemInDarkTheme() = true` fallback）
+- 字体打包进 `res/font/`，不依赖系统字体
+- Material Symbols 字体打包进 APK
+
+## 八、后台执行策略
 
 - 长任务运行时启动 Foreground Service，保持进程存活
 - 通知栏显示任务进度（"正在生成计划..."）

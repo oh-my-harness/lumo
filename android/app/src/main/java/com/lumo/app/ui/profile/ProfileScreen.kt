@@ -272,6 +272,7 @@ private fun ModelConfigScreen(
     var model by remember { mutableStateOf(currentConfig?.get("model") ?: "gpt-4o") }
     var testResult by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -332,6 +333,54 @@ private fun ModelConfigScreen(
             label = { Text("模型名称") },
             singleLine = true
         )
+        // Quick setup: DeepSeek one-click
+        Spacer(modifier = Modifier.height(12.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text("没有 API Key？", fontWeight = FontWeight.Medium)
+                Text(
+                    "一键购买 DeepSeek Token，3 步完成配置",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://platform.deepseek.com/register")
+                        )
+                        context.startActivity(intent)
+                    }) { Text("注册") }
+                    OutlinedButton(onClick = {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://platform.deepseek.com/usage")
+                        )
+                        context.startActivity(intent)
+                    }) { Text("充值") }
+                    OutlinedButton(onClick = {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://platform.deepseek.com/api_keys")
+                        )
+                        context.startActivity(intent)
+                    }) { Text("创建 Key") }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                TextButton(onClick = {
+                    // Quick fill DeepSeek defaults
+                    providerType = "openai"
+                    baseUrl = "https://api.deepseek.com/"
+                    model = "deepseek-chat"
+                }) { Text("填入 DeepSeek 默认配置") }
+            }
+        }
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(

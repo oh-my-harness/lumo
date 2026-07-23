@@ -13,7 +13,6 @@ android {
         applicationId = "com.lumo.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
         versionName = "0.1.0"
         ndk {
             abiFilters += "arm64-v8a"
@@ -84,7 +83,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
 
-    // Debug
+    // Markdown rendering
+    // Markdown rendering — uses WebView + marked.js + KaTeX + Mermaid (no extra deps)
     debugImplementation("androidx.compose.ui:ui-tooling")
     // Testing
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

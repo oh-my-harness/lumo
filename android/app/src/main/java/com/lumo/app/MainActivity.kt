@@ -19,6 +19,9 @@ import com.lumo.app.ui.profile.ProfileScreen
 import com.lumo.app.ui.quiz.QuizScreen
 import com.lumo.app.ui.theme.LumoTheme
 import com.lumo.app.ui.today.TodayScreen
+import com.lumo.app.ui.onboarding.OnboardingDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class TabItem(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
@@ -36,6 +39,25 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun LumoApp() {
+    val repo = LumoRepository.get()
+    var showOnboarding by remember { mutableStateOf(false) }
+    var configChecked by remember { mutableStateOf(false) }
+
+    // Check if provider config exists on first launch
+    LaunchedEffect(Unit) {
+        try {
+            val config = withContext(Dispatchers.IO) { repo.getProviderConfig() }
+            if (config == null) showOnboarding = true
+        } catch (e: Exception) {}
+        configChecked = true
+    }
+
+    if (showOnboarding) {
+        OnboardingDialog(
+            onDismiss = { showOnboarding = false },
+            onConfigSaved = { showOnboarding = false },
+        )
+    }
     val tabs = listOf(
         TabItem("today", "今日", Icons.Filled.Today),
         TabItem("chat", "对话", Icons.Filled.Chat),
