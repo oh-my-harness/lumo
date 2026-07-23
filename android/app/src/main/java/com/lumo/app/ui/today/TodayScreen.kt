@@ -86,14 +86,21 @@ fun TodayScreen() {
         Spacer(modifier = Modifier.height(16.dp))
 
         // 番茄钟
-        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            )
+        ) {
+            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 val mins = pomodoroSeconds / 60
                 val secs = pomodoroSeconds % 60
                 Text(
                     String.format("%02d:%02d", mins, secs),
                     fontSize = 40.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Row(
                     modifier = Modifier.padding(top = 8.dp),
@@ -162,6 +169,7 @@ fun TodayScreen() {
                 }
             }
         }
+        Spacer(modifier = Modifier.height(20.dp))
         // Tab switcher: 今日任务 / 学习计划 / 学习统计
         LumoSegmentedControl(
             options = listOf("今日任务", "学习计划", "学习统计"),
@@ -174,7 +182,11 @@ fun TodayScreen() {
         // Tab content inside a card
         Card(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())
