@@ -118,6 +118,8 @@ class LumoRepository private constructor(private val py: Python) {
     fun deleteNote(id: String) = bridge().callAttr("delete_note", id)
     fun searchNotes(query: String): List<Map<String, String?>> =
         bridge().callAttr("search_notes", query).toStringMapList()
+    fun aiSummarizeNote(noteId: String): String =
+        bridge().callAttr("ai_summarize_note", noteId).toString()
     fun listFolders(): List<Map<String, String?>> =
         bridge().callAttr("list_folders").toStringMapList()
     fun createFolder(name: String): String = bridge().callAttr("create_folder", name).toString()

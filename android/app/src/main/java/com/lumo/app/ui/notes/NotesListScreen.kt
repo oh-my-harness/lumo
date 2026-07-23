@@ -15,6 +15,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumo.app.data.LumoRepository
+import com.lumo.app.ui.markdown.MarkdownRenderer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun NotesListScreen() {
@@ -64,12 +68,39 @@ fun NotesListScreen() {
                 Icon(Icons.Filled.Add, contentDescription = "新建笔记")
             }
         }
+        var searchQuery by remember { mutableStateOf("") }
+        var searchResults by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+        val scope = rememberCoroutineScope()
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { query ->
+                searchQuery = query
+                scope.launch {
+                    searchResults = if (query.isBlank()) emptyList()
+                    else withContext(Dispatchers.IO) { repo.searchNotes(query) }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            placeholder = { Text("搜索笔记...") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = ""; searchResults = emptyList() }) {
+                        Icon(Icons.Filled.Clear, contentDescription = "清除")
+                    }
+                }
+            },
+            singleLine = true
+        )
+
+        val displayNotes = if (searchQuery.isNotEmpty()) searchResults else notes
 
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else if (notes.isEmpty()) {
+        } else if (displayNotes.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("点击 + 创建笔记", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -78,7 +109,7 @@ fun NotesListScreen() {
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(notes) { note ->
+                items(displayNotes) { note ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -117,6 +148,11 @@ private fun NoteEditorScreen(
 ) {
     var title by remember { mutableStateOf(note?.get("title") ?: "") }
     var content by remember { mutableStateOf(note?.get("content") ?: "") }
+    var previewMode by remember { mutableStateOf(false) }
+    var summarizing by remember { mutableStateOf(false) }
+    var summaryResult by remember { mutableStateOf("") }
+    val repo = LumoRepository.get()
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -132,8 +168,37 @@ private fun NoteEditorScreen(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
-            TextButton(onClick = { if (title.isNotBlank()) onSave(title, content) }) {
-                Text("保存")
+            Row {
+                // 编辑/预览切换
+                IconButton(onClick = { previewMode = !previewMode }) {
+                    Icon(
+                        if (previewMode) Icons.Filled.Edit else Icons.Filled.Visibility,
+                        contentDescription = if (previewMode) "编辑" else "预览"
+                    )
+                }
+                // AI 摘要（仅编辑已有笔记时可用）
+                if (note != null) {
+                    IconButton(onClick = {
+                        scope.launch {
+                            summarizing = true
+                            try {
+                                val summary = withContext(Dispatchers.IO) {
+                                    repo.aiSummarizeNote(note["id"]!!)
+                                }
+                                content = if (content.isBlank()) summary else "$content\n\n---\n\n## AI 摘要\n\n$summary"
+                            } catch (e: Exception) {
+                                summaryResult = "错误: ${e.message}"
+                            }
+                            summarizing = false
+                        }
+                    }) {
+                        if (summarizing) CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        else Icon(Icons.Filled.AutoAwesome, contentDescription = "AI 摘要")
+                    }
+                }
+                TextButton(onClick = { if (title.isNotBlank()) onSave(title, content) }) {
+                    Text("保存")
+                }
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -145,11 +210,24 @@ private fun NoteEditorScreen(
             singleLine = true
         )
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = content,
-            onValueChange = { content = it },
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            placeholder = { Text("内容（支持 Markdown）") }
-        )
+
+        if (previewMode) {
+            MarkdownRenderer(
+                content = content,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                isDarkTheme = false,
+            )
+        } else {
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it },
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                placeholder = { Text("内容（支持 Markdown）") }
+            )
+        }
+
+        if (summaryResult.isNotEmpty()) {
+            Text(summaryResult, fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+        }
     }
 }
