@@ -126,6 +126,10 @@ class LumoRepository private constructor(private val py: Python) {
         bridge().callAttr("search_notes", query).toStringMapList()
     fun aiSummarizeNote(noteId: String): String =
         bridge().callAttr("ai_summarize_note", noteId).toString()
+    fun summarizeNotes(noteIds: List<String>, title: String = ""): String {
+        val json = org.json.JSONArray(noteIds).toString()
+        return bridge().callAttr("summarize_notes", json, title).toString()
+    }
     fun listFolders(): List<Map<String, String?>> =
         bridge().callAttr("list_folders").toStringMapList()
     fun createFolder(name: String): String = bridge().callAttr("create_folder", name).toString()

@@ -254,3 +254,41 @@ def summarize_conversation(store, config: ProviderConfig, session_id: str) -> st
             text += event.get("text", "")
 
     return text
+
+def summarize_notes(store, config: ProviderConfig, note_ids: list[str]) -> str:
+    """Use LLM to summarize multiple notes into one consolidated note.
+
+    Returns the summary text suitable for saving as a note.
+    """
+    notes = []
+    for nid in note_ids:
+        note = store.get_note(nid)
+        if note:
+            notes.append(f"### {note['title']}\n\n{note.get('content', '')}")
+
+    if not notes:
+        return "没有可汇总的笔记"
+
+    combined = "\n\n---\n\n".join(notes)
+
+    provider = create_provider(config)
+    harness = (
+        senza.HarnessBuilder(config.model)
+        .provider("*", provider)
+        .system_prompt(
+            "你是学习助手。将多份笔记归纳汇总为一份结构清晰的学习笔记。"
+ "保留重要知识点，去除重复内容，按主题分类整理。用 Markdown 格式输出。"
+        )
+        .max_tokens(2048)
+        .build()
+    )
+
+    prompt = f"请将以下 {len(notes)} 份笔记归纳汇总为一份学习笔记：\n\n{combined}"
+
+    events = harness.prompt_and_collect(prompt, timeout_ms=60000)
+    text = ""
+    for event in events:
+        if event["type"] == "text_delta":
+            text += event.get("text", "")
+
+    return text

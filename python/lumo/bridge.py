@@ -511,6 +511,33 @@ def ai_summarize_note(note_id: str) -> str:
     return summarize_note(store, config, note_id)
 
 
+def summarize_notes(note_ids_json: str, title: str = "") -> str:
+    """Summarize multiple notes into one consolidated note.
+
+    Args:
+        note_ids_json: JSON string of note IDs, e.g. '["id1", "id2"]'
+        title: Optional title for the new note
+    """
+    import json as _json
+    from lumo.agent import summarize_notes as _summarize_notes
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured")
+
+    note_ids = _json.loads(note_ids_json)
+    if not note_ids:
+        raise ValueError("No note IDs provided")
+
+    summary = _summarize_notes(store, config, note_ids)
+
+    note_title = title or f"笔记汇总 ({len(note_ids)} 篇)"
+    note_id = store.create_note(note_title, summary, source="ai_summary")
+    return note_id
+
+
 def save_conversation_as_note(session_id: str, title: str = "") -> str:
     """Summarize a conversation and save/update it as a note.
 
