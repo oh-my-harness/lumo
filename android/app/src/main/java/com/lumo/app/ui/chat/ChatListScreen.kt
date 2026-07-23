@@ -172,9 +172,10 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        var showSaveNoteDialog by remember { mutableStateOf(false) }
-        var saveNoteResult by remember { mutableStateOf("") }
-        var savingNote by remember { mutableStateOf(false) }
+    var showSaveNoteDialog by remember { mutableStateOf(false) }
+    var savingNote by remember { mutableStateOf(false) }
+    var noteSaved by remember { mutableStateOf(false) }
+
         TopAppBar(
             title = { Text("对话") },
             navigationIcon = {
@@ -186,40 +187,33 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                 IconButton(onClick = { showQuizGenDialog = true }) {
                     Icon(Icons.Filled.Quiz, contentDescription = "出题")
                 }
-                IconButton(onClick = { showSaveNoteDialog = true }) {
-                    Icon(Icons.Filled.Save, contentDescription = "保存为笔记")
+                IconButton(
+                    onClick = { if (!savingNote) showSaveNoteDialog = true },
+                    enabled = !savingNote
+                ) {
+                    Icon(
+                        if (noteSaved) Icons.Filled.CheckCircle else Icons.Filled.NoteAdd,
+                        contentDescription = "保存为笔记",
+                        tint = if (noteSaved) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         )
 
         if (showSaveNoteDialog) {
-            var noteTitle by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { if (!savingNote) showSaveNoteDialog = false },
                 title = { Text("保存为笔记") },
                 text = {
-                    Column {
-                        OutlinedTextField(
-                            value = noteTitle,
-                            onValueChange = { noteTitle = it },
-                            label = { Text("笔记标题（可选）") },
-                            singleLine = true,
-                            enabled = !savingNote
-                        )
-                        if (savingNote) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("AI 正在归纳对话内容...", fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                    if (savingNote) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("AI 正在总结对话内容...")
                         }
-                        if (saveNoteResult.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(saveNoteResult, fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    } else {
+                        Text(if (noteSaved) "该对话已有笔记，是否更新内容？" else "是否让 AI 总结这段对话并保存为笔记？")
                     }
                 },
                 confirmButton = {
@@ -230,20 +224,20 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                                 savingNote = true
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        repo.saveConversationAsNote(sessionId, noteTitle)
+                                        repo.saveConversationAsNote(sessionId)
                                     }
-                                    saveNoteResult = "已保存"
+                                    noteSaved = true
                                     showSaveNoteDialog = false
                                 } catch (e: Exception) {
-                                    saveNoteResult = "错误: ${e.message}"
+                                    // show error in dialog
                                 }
                                 savingNote = false
                             }
                         },
                         enabled = !savingNote
-                    ) {
+ ) {
                         if (savingNote) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                        else Text("保存")
+                        else Text(if (noteSaved) "更新" else "保存")
                     }
                 },
                 dismissButton = {

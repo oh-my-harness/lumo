@@ -512,7 +512,10 @@ def ai_summarize_note(note_id: str) -> str:
 
 
 def save_conversation_as_note(session_id: str, title: str = "") -> str:
-    """Summarize a conversation and save it as a note."""
+    """Summarize a conversation and save/update it as a note.
+
+    One note per session: creates on first save, updates on subsequent saves.
+    """
     from lumo.agent import summarize_conversation
     from lumo.config import get_provider_config
 
@@ -526,8 +529,19 @@ def save_conversation_as_note(session_id: str, title: str = "") -> str:
     session = store.get_session(session_id)
     note_title = title or (session["title"] if session else "对话总结")
 
-    note_id = store.create_note(note_title, summary, source="conversation")
-    return note_id
+    # Check if a note already exists for this session
+    mem_key = f"note_for_session:{session_id}"
+    existing_note_id = store.read_memory("global", mem_key)
+
+    if existing_note_id:
+        # Update existing note
+        store.update_note(existing_note_id, title=note_title, content=summary)
+        return existing_note_id
+    else:
+        # Create new note
+        note_id = store.create_note(note_title, summary, source="conversation")
+        store.write_memory("global", mem_key, note_id)
+        return note_id
 
 
 # ── Daily Tasks & Pomodoro (Module 3) ──
