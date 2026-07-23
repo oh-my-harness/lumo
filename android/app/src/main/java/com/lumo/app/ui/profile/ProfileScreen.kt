@@ -305,9 +305,12 @@ private fun CreatePlanScreen(
     onSave: (String, String, Int, String, String) -> Unit,
     onBack: () -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
     var goal by remember { mutableStateOf("") }
-    var minutes by remember { mutableStateOf("60") }
+    var dailyMinutes by remember { mutableStateOf("60") }
+    var generating by remember { mutableStateOf(false) }
+    var genResult by remember { mutableStateOf("") }
+    val repo = LumoRepository.get()
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -319,47 +322,57 @@ private fun CreatePlanScreen(
                 Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
             }
             Text("新建学习计划", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = {
-                if (title.isNotBlank() && goal.isNotBlank()) {
-                    onSave(title, goal, minutes.toIntOrNull() ?: 60, "", "")
-                }
-            }) {
-                Text("创建")
+            TextButton(
+                onClick = {
+                    if (goal.isNotBlank() && !generating) {
+                        scope.launch {
+                            generating = true
+                            genResult = "AI 正在生成计划..."
+                            try {
+                                val mins = dailyMinutes.toIntOrNull() ?: 60
+                                val result = withContext(Dispatchers.IO) {
+                                    repo.generatePlan(goal, mins)
+                                }
+                                genResult = "计划已生成！${result["weeks"] ?: ""} 周大纲已创建"
+                                generating = false
+                                // 刷新列表
+                                onSave(result["plan_id"]?.toString() ?: "", goal, mins, "", "")
+                            } catch (e: Exception) {
+                                genResult = "错误: ${e.message}"
+                                generating = false
+                            }
+                        }
+                    }
+                },
+                enabled = !generating && goal.isNotBlank()
+            ) {
+                if (generating) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                else Text("生成")
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("计划标题") },
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
             value = goal,
             onValueChange = { goal = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("学习目标（如：2个月学会前端基础）") },
-            maxLines = 3
+            label = { Text("学习目标") },
+            placeholder = { Text("如：2 个月学会前端基础，每天 1 小时") },
+            minLines = 2
         )
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
-            value = minutes,
-            onValueChange = { minutes = it.filter { it.isDigit() } },
+            value = dailyMinutes,
+            onValueChange = { dailyMinutes = it.filter { c -> c.isDigit() } },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("每天学习时间（分钟）") },
+            label = { Text("每日学习时长（分钟）") },
             singleLine = true
         )
-        Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            "注意：创建后可在「对话」中让 AI 帮你生成详细计划",
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Spacer(modifier = Modifier.height(16.dp))
+        if (genResult.isNotEmpty()) {
+            Text(genResult, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }

@@ -100,6 +100,12 @@ class LumoRepository private constructor(private val py: Python) {
         bridge().callAttr("list_plans").toStringMapList()
     fun createPlan(title: String, goal: String, dailyMinutes: Int, startDate: String, endDate: String): String =
         bridge().callAttr("create_plan", title, goal, dailyMinutes, startDate, endDate).toString()
+    fun generatePlan(goal: String, dailyMinutes: Int, weekNum: Int = 1): Map<String, Any?> {
+        val result = bridge().callAttr("generate_plan", goal, dailyMinutes, weekNum)
+        return result.asMap().entries.associate { (k, v) ->
+            k.toString() to (v as? Any)
+        }
+    }
     fun deletePlan(id: String) = bridge().callAttr("delete_plan", id)
     fun updatePlanStatus(id: String, status: String) = bridge().callAttr("update_plan_status", id, status)
     fun getPlanTasks(planId: String): List<Map<String, String?>> =
