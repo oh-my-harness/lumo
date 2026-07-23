@@ -23,12 +23,10 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotesListScreen() {
+fun NotesListScreen(navController: androidx.navigation.NavController) {
     val repo = LumoRepository.get()
     var notes by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var showEditor by remember { mutableStateOf(false) }
-    var editingNote by remember { mutableStateOf<Map<String, String?>?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<String>() }
     var summarizing by remember { mutableStateOf(false) }
@@ -38,29 +36,6 @@ fun NotesListScreen() {
         loading = true
         try { notes = repo.listNotes() } catch (e: Exception) {}
         loading = false
-    }
-
-    if (showEditor) {
-        NoteEditorScreen(
-            note = editingNote,
-            onSave = { title, content ->
-                try {
-                    if (editingNote != null) {
-                        repo.updateNote(editingNote!!["id"]!!, title, content)
-                    } else {
-                        repo.createNote(title, content)
-                    }
-                    notes = repo.listNotes()
-                } catch (e: Exception) {}
-                showEditor = false
-                editingNote = null
-            },
-            onBack = {
-                showEditor = false
-                editingNote = null
-            }
-        )
-        return
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -87,7 +62,7 @@ fun NotesListScreen() {
                         if (notes.isNotEmpty()) selectedIds.add(notes.first()["id"]!!)
                     }) { Icon(Icons.Filled.Merge, contentDescription = "汇总笔记") }
                     FloatingActionButton(
-                        onClick = { showEditor = true; editingNote = null },
+                        onClick = { navController.navigate("notes/editor") },
                         modifier = Modifier.size(40.dp)
                     ) { Icon(Icons.Filled.Add, contentDescription = "新建笔记") }
                 }
@@ -151,8 +126,7 @@ fun NotesListScreen() {
                                     if (isSelected) selectedIds.remove(noteId)
                                     else selectedIds.add(noteId)
                                 } else {
-                                    editingNote = note
-                                    showEditor = true
+                                    navController.navigate("notes/editor/$noteId")
                                 }
                             },
                         shape = RoundedCornerShape(12.dp),
@@ -223,46 +197,61 @@ fun NotesListScreen() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteEditorScreen(
-    note: Map<String, String?>?,
-    onSave: (String, String) -> Unit,
-    onBack: () -> Unit
+fun NoteEditorScreen(
+    navController: androidx.navigation.NavController,
+    noteId: String? = null,
 ) {
     val repo = LumoRepository.get()
-    var title by remember { mutableStateOf(note?.get("title") ?: "") }
-    var content by remember { mutableStateOf(note?.get("content") ?: "") }
-    var previewMode by remember { mutableStateOf(!(note?.get("content").isNullOrEmpty())) }
-    var aiSummary by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+    var previewMode by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(noteId == null) }
     var summarizing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(noteId) {
+        if (noteId != null) {
+            try {
+                val notes = repo.listNotes()
+                val note = notes.find { it["id"] == noteId }
+                if (note != null) {
+                    title = note["title"] ?: ""
+                    content = note["content"] ?: ""
+                    previewMode = !content.isBlank()
+                }
+            } catch (e: Exception) {}
+        }
+        loaded = true
+    }
+
+    if (!loaded) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-            }
-            Text(
-                if (note == null) "新建笔记" else "编辑笔记",
-                fontWeight = FontWeight.Bold
-            )
-            Row {
-                if (note != null && !previewMode) {
+        TopAppBar(
+            title = { Text(if (noteId == null) "新建笔记" else "编辑笔记", fontWeight = FontWeight.Bold) },
+            navigationIcon = {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                }
+            },
+            actions = {
+                if (noteId != null && !previewMode) {
                     IconButton(onClick = {
                         if (!summarizing) {
                             scope.launch {
                                 summarizing = true
                                 try {
-                                    aiSummary = withContext(Dispatchers.IO) {
-                                        repo.aiSummarizeNote(note["id"]!!)
+                                    val summary = withContext(Dispatchers.IO) {
+                                        repo.aiSummarizeNote(noteId)
                                     }
-                                    if (aiSummary.isNotBlank()) {
-                                        content = aiSummary
-                                    }
+                                    if (summary.isNotBlank()) content = summary
                                 } catch (e: Exception) {}
                                 summarizing = false
                             }
@@ -278,11 +267,16 @@ private fun NoteEditorScreen(
                         contentDescription = if (previewMode) "编辑" else "预览"
                     )
                 }
-                TextButton(onClick = { onSave(title, content) }) {
-                    Text("保存")
-                }
+                TextButton(onClick = {
+                    if (noteId != null) {
+                        repo.updateNote(noteId, title, content)
+                    } else {
+                        repo.createNote(title, content)
+                    }
+                    navController.popBackStack()
+                }) { Text("保存") }
             }
-        }
+        )
 
         OutlinedTextField(
             value = title,

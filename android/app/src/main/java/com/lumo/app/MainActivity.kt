@@ -14,6 +14,7 @@ import androidx.navigation.compose.*
 import com.lumo.app.data.LumoRepository
 import com.lumo.app.ui.chat.ChatDetailScreen
 import com.lumo.app.ui.chat.ChatListScreen
+import com.lumo.app.ui.notes.NoteEditorScreen
 import com.lumo.app.ui.notes.NotesListScreen
 import com.lumo.app.ui.profile.ProfileScreen
 import com.lumo.app.ui.quiz.QuizScreen
@@ -69,22 +70,26 @@ fun LumoApp() {
     val currentRoute by navController.currentBackStackEntryAsState()
     val currentDestination = currentRoute?.destination?.route
 
+    val showBottomBar = currentDestination in listOf("today", "chat", "quiz", "notes", "profile")
+
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                tabs.forEach { tab ->
-                    NavigationBarItem(
-                        icon = { Icon(tab.icon, contentDescription = tab.title) },
-                        label = { Text(tab.title) },
-                        selected = currentDestination == tab.route,
-                        onClick = {
-                            navController.navigate(tab.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+            if (showBottomBar) {
+                NavigationBar {
+                    tabs.forEach { tab ->
+                        NavigationBarItem(
+                            icon = { Icon(tab.icon, contentDescription = tab.title) },
+                            label = { Text(tab.title) },
+                            selected = currentDestination == tab.route,
+                            onClick = {
+                                navController.navigate(tab.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -103,7 +108,14 @@ fun LumoApp() {
                 )
             }
             composable("quiz") { QuizScreen() }
-            composable("notes") { NotesListScreen() }
+            composable("notes") { NotesListScreen(navController) }
+            composable("notes/editor") { NoteEditorScreen(navController) }
+            composable("notes/editor/{noteId}") { backStackEntry ->
+                NoteEditorScreen(
+                    navController = navController,
+                    noteId = backStackEntry.arguments?.getString("noteId"),
+                )
+            }
             composable("profile") { ProfileScreen() }
         }
     }
