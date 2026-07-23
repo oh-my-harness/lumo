@@ -382,10 +382,28 @@ def generate_quiz(knowledge_points: str, num_questions: int = 3,
     )
 
     # Persist questions to SQLite
+    _TYPE_MAP = {
+        "single_choice": "single_choice",
+        "multi_choice": "multi_choice",
+        "true_false": "true_false",
+        "short_answer": "short_answer",
+        "single": "single_choice",
+        "multiple": "multi_choice",
+        "multi": "multi_choice",
+        "truefalse": "true_false",
+        "boolean": "true_false",
+        "判断": "true_false",
+        "单选": "single_choice",
+        "多选": "multi_choice",
+        "简答": "short_answer",
+        "填空": "short_answer",
+    }
     question_ids = []
     for q in result.get("questions", []):
+        raw_type = q.get("type", "single_choice")
+        normalized_type = _TYPE_MAP.get(raw_type, "single_choice")
         qid = store.create_question(
-            question_type=q.get("type", "single_choice"),
+            question_type=normalized_type,
             question=q.get("question", ""),
             options=json.dumps(q.get("options", []), ensure_ascii=False),
             answer=q.get("answer", ""),

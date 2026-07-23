@@ -1,5 +1,6 @@
 package com.lumo.app.ui.quiz
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -157,6 +158,7 @@ fun QuizScreen() {
                                     gradeResults = emptyMap()
                                     refresh()
                                 } catch (e: Exception) {
+                                    Log.e("LumoQuiz", "generateQuiz failed", e)
                                     genResult = "错误: ${e.message}"
                                 }
                                 generating = false
