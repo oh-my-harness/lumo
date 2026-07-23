@@ -1,6 +1,5 @@
 package com.lumo.app.ui.quiz
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,107 +14,57 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lumo.app.data.LumoRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.lumo.app.data.dto.QuestionDto
+import com.lumo.app.data.dto.GradeResultDto
 import org.json.JSONArray
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizScreen() {
-    val repo = LumoRepository.get()
-    var questions by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
+    val vm: QuizViewModel = viewModel { QuizViewModel(LumoRepository.get()) }
+    val uiState by vm.uiState.collectAsStateWithLifecycle()
+    val genDialog by vm.genDialog.collectAsStateWithLifecycle()
 
-    // Quiz mode state
-    var quizMode by remember { mutableStateOf(false) }
-    var currentIndex by remember { mutableStateOf(0) }
-    var selectedAnswers by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var gradeResults by remember { mutableStateOf<Map<String, Map<String, Any?>?>>(emptyMap()) }
-
-    // AI generation dialog
-    var showGenDialog by remember { mutableStateOf(false) }
-    var genTopic by remember { mutableStateOf("") }
-    var genCount by remember { mutableStateOf("3") }
-    var generating by remember { mutableStateOf(false) }
-    var genResult by remember { mutableStateOf("") }
-
-    fun refresh() {
-        scope.launch {
-            loading = true
-            try {
-                questions = withContext(Dispatchers.IO) { repo.getQuizQuestions() }
-                if (currentIndex >= questions.size) currentIndex = 0
-            } catch (e: Exception) {}
-            loading = false
-        }
-    }
-
-    LaunchedEffect(Unit) { refresh() }
-
-    if (quizMode && questions.isNotEmpty()) {
+    if (uiState.quizMode && uiState.questions.isNotEmpty()) {
         QuizCardView(
-            questions = questions,
-            currentIndex = currentIndex,
-            onIndexChange = { currentIndex = it },
-            selectedAnswers = selectedAnswers,
-            gradeResults = gradeResults,
-            onAnswerSelected = { qid, answer ->
-                selectedAnswers = selectedAnswers + (qid to answer)
-            },
-            onSubmit = { qid, answer ->
-                scope.launch {
-                    try {
-                        val result = withContext(Dispatchers.IO) {
-                            repo.gradeAnswer(qid, answer)
-                        }
-                        gradeResults = gradeResults + (qid to result)
-                    } catch (e: Exception) {}
-                }
-            },
-            onReset = { qid ->
-                selectedAnswers = selectedAnswers - qid
-                gradeResults = gradeResults - qid
-            },
-            onExit = {
-                quizMode = false
-                selectedAnswers = emptyMap()
-                gradeResults = emptyMap()
-                currentIndex = 0
-            }
+            questions = uiState.questions,
+            currentIndex = uiState.currentIndex,
+            onIndexChange = { vm.setCurrentIndex(it) },
+            selectedAnswers = uiState.selectedAnswers,
+            gradeResults = uiState.gradeResults,
+            onAnswerSelected = { qid, answer -> vm.onAnswerSelected(qid, answer) },
+            onSubmit = { qid, answer -> vm.gradeAnswer(qid, answer) },
+            onReset = { qid -> vm.resetAnswer(qid) },
+            onExit = { vm.setQuizMode(false) }
         )
         return
     }
 
-    var searchQuery by remember { mutableStateOf("") }
-    var filterKp by remember { mutableStateOf<String?>(null) }
+    val questions = uiState.questions
+    val searchQuery = uiState.searchQuery
+    val filterKp = uiState.filterKp
 
     // Extract all distinct knowledge points from questions
     val allKnowledgePoints = remember(questions) {
         val set = linkedSetOf<String>()
         for (q in questions) {
-            val kps = q["knowledge_points"]
-            if (!kps.isNullOrEmpty()) {
-                try {
-                    JSONArray(kps).let { arr ->
-                        (0 until arr.length()).map { arr.getString(it) }
-                    }.forEach { set.add(it) }
-                } catch (e: Exception) {}
-            }
+            parseKpList(q.knowledge_points).forEach { set.add(it) }
         }
         set.toList()
     }
 
     val filteredQuestions = remember(questions, searchQuery, filterKp) {
         questions.filter { q ->
-            (filterKp == null || q["knowledge_points"]?.contains(filterKp!!) == true) &&
+            (filterKp == null || parseKpList(q.knowledge_points).contains(filterKp)) &&
             (searchQuery.isBlank() ||
-             (q["question"]?.contains(searchQuery, ignoreCase = true) == true) ||
-             (q["knowledge_points"]?.contains(searchQuery, ignoreCase = true) == true))
+             q.question.contains(searchQuery, ignoreCase = true) ||
+             (q.knowledge_points?.contains(searchQuery, ignoreCase = true) == true))
         }
     }
 
@@ -125,14 +74,11 @@ fun QuizScreen() {
                 title = { Text("题库", fontWeight = FontWeight.Bold) },
                 actions = {
                     if (questions.isNotEmpty()) {
-                        IconButton(onClick = {
-                            quizMode = true
-                            currentIndex = 0
-                            selectedAnswers = emptyMap()
-                            gradeResults = emptyMap()
-                        }) { Icon(Icons.Filled.PlayArrow, contentDescription = "开始测验") }
+                        IconButton(onClick = { vm.setQuizMode(true) }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = "开始测验")
+                        }
                     }
-                    IconButton(onClick = { showGenDialog = true }) {
+                    IconButton(onClick = { vm.showGenDialog(true) }) {
                         Icon(Icons.Filled.Add, contentDescription = "生成测验")
                     }
                 }
@@ -140,7 +86,7 @@ fun QuizScreen() {
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (loading) {
+            if (uiState.loading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
@@ -148,19 +94,19 @@ fun QuizScreen() {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("暂无题目\n点击 + 生成测验",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        textAlign = TextAlign.Center)
                 }
             } else {
                 // Search bar
                 OutlinedTextField(
                     value = searchQuery,
-                    onValueChange = { searchQuery = it },
+                    onValueChange = { vm.setSearchQuery(it) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     placeholder = { Text("搜索题目或知识点...") },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
+                            IconButton(onClick = { vm.setSearchQuery("") }) {
                                 Icon(Icons.Filled.Clear, contentDescription = "清除")
                             }
                         }
@@ -195,12 +141,12 @@ fun QuizScreen() {
                     ) {
                         DropdownMenuItem(
                             text = { Text("全部") },
-                            onClick = { filterKp = null; kpDropdownExpanded = false }
+                            onClick = { vm.setFilterKp(null); kpDropdownExpanded = false }
                         )
                         allKnowledgePoints.forEach { kp ->
                             DropdownMenuItem(
                                 text = { Text(kp, fontSize = 12.sp) },
-                                onClick = { filterKp = kp; kpDropdownExpanded = false }
+                                onClick = { vm.setFilterKp(kp); kpDropdownExpanded = false }
                             )
                         }
                     }
@@ -217,11 +163,11 @@ fun QuizScreen() {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+                        contentPadding = PaddingValues(vertical = 8.dp)
                     ) {
                         items(filteredQuestions) { question ->
-                            val qid = question["id"] ?: return@items
-                            val qType = question["question_type"] ?: "single_choice"
+                            val qid = question.id
+                            val qType = question.question_type
                             val qTypeLabel = when (qType) {
                                 "single_choice" -> "单选"
                                 "multi_choice" -> "多选"
@@ -229,21 +175,12 @@ fun QuizScreen() {
                                 "short_answer" -> "简答"
                                 else -> qType
                             }
-                            val gradeResult = gradeResults[qid]
-                            val isCorrect = gradeResult?.let { g ->
-                                val c = g["is_correct"]
-                                c == true || c.toString() == "True"
-                            }
+                            val gradeResult = uiState.gradeResults[qid]
+                            val isCorrect = gradeResult?.is_correct
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        val idx = questions.indexOfFirst { it["id"] == qid }
-                                        if (idx >= 0) {
-                                            currentIndex = idx
-                                            quizMode = true
-                                        }
-                                    },
+                                    .clickable { vm.startQuizAt(qid) },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = when {
@@ -264,10 +201,10 @@ fun QuizScreen() {
                                         )
                                         if (isCorrect != null) {
                                             Icon(
-                                                if (isCorrect == true) Icons.Filled.CheckCircle
+                                                if (isCorrect) Icons.Filled.CheckCircle
                                                 else Icons.Filled.Cancel,
                                                 contentDescription = null,
-                                                tint = if (isCorrect == true)
+                                                tint = if (isCorrect)
                                                     MaterialTheme.colorScheme.primary
                                                 else MaterialTheme.colorScheme.error,
                                                 modifier = Modifier.size(16.dp)
@@ -276,26 +213,19 @@ fun QuizScreen() {
                                     }
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        question["question"] ?: "",
+                                        question.question,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 3
                                     )
-                                    val kps = question["knowledge_points"]
-                                    if (!kps.isNullOrEmpty()) {
-                                        val tags = try {
-                                            JSONArray(kps).let { arr ->
-                                                (0 until arr.length()).map { arr.getString(it) }
-                                            }
-                                        } catch (e: Exception) { emptyList() }
-                                        if (tags.isNotEmpty()) {
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                tags.joinToString(" · "),
-                                                fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
+                                    val tags = parseKpList(question.knowledge_points)
+                                    if (tags.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            tags.joinToString(" · "),
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
@@ -307,31 +237,31 @@ fun QuizScreen() {
     }
 
     // Generation dialog
-    if (showGenDialog) {
+    if (genDialog.showGenDialog) {
         AlertDialog(
-            onDismissRequest = { if (!generating) showGenDialog = false },
+            onDismissRequest = { if (!genDialog.generating) vm.showGenDialog(false) },
             title = { Text("生成测验") },
             text = {
                 Column {
                     OutlinedTextField(
-                        value = genTopic,
-                        onValueChange = { genTopic = it },
+                        value = genDialog.genTopic,
+                        onValueChange = { vm.setGenTopic(it) },
                         label = { Text("知识点 / 主题") },
                         placeholder = { Text("如：Python 闭包") },
                         singleLine = true,
-                        enabled = !generating
+                        enabled = !genDialog.generating
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = genCount,
-                        onValueChange = { genCount = it.filter { c -> c.isDigit() } },
+                        value = genDialog.genCount,
+                        onValueChange = { vm.setGenCount(it) },
                         label = { Text("题目数量") },
                         singleLine = true,
-                        enabled = !generating
+                        enabled = !genDialog.generating
                     )
-                    if (genResult.isNotEmpty()) {
+                    if (genDialog.genResult.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(genResult, fontSize = 13.sp,
+                        Text(genDialog.genResult, fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -339,40 +269,20 @@ fun QuizScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (genTopic.isNotBlank() && !generating) {
-                            scope.launch {
-                                generating = true
-                                genResult = "正在生成..."
-                                try {
-                                    val count = genCount.toIntOrNull() ?: 3
-                                    withContext(Dispatchers.IO) {
-                                        repo.generateQuiz(genTopic, count)
-                                    }
-                                    genResult = "已生成 $count 道题"
-                                    showGenDialog = false
-                                    genTopic = ""
-                                    currentIndex = 0
-                                    selectedAnswers = emptyMap()
-                                    gradeResults = emptyMap()
-                                    refresh()
-                                } catch (e: Exception) {
-                                    Log.e("LumoQuiz", "generateQuiz failed", e)
-                                    genResult = "错误: ${e.message}"
-                                }
-                                generating = false
-                            }
+                        if (genDialog.genTopic.isNotBlank() && !genDialog.generating) {
+                            vm.generateQuiz(genDialog.genTopic, genDialog.genCount.toIntOrNull() ?: 3)
                         }
                     },
-                    enabled = !generating && genTopic.isNotBlank()
+                    enabled = !genDialog.generating && genDialog.genTopic.isNotBlank()
                 ) {
-                    if (generating) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    if (genDialog.generating) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else Text("生成")
                 }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { if (!generating) showGenDialog = false },
-                    enabled = !generating
+                    onClick = { if (!genDialog.generating) vm.showGenDialog(false) },
+                    enabled = !genDialog.generating
                 ) { Text("取消") }
             }
         )
@@ -382,20 +292,20 @@ fun QuizScreen() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuizCardView(
-    questions: List<Map<String, String?>>,
+    questions: List<QuestionDto>,
     currentIndex: Int,
     onIndexChange: (Int) -> Unit,
     selectedAnswers: Map<String, String>,
-    gradeResults: Map<String, Map<String, Any?>?>,
+    gradeResults: Map<String, GradeResultDto>,
     onAnswerSelected: (String, String) -> Unit,
     onSubmit: (String, String) -> Unit,
     onReset: (String) -> Unit,
     onExit: () -> Unit,
 ) {
     val question = questions[currentIndex]
-    val qid = question["id"] ?: return
-    val qType = question["question_type"] ?: "single_choice"
-    val options = parseOptions(question["options"])
+    val qid = question.id
+    val qType = question.question_type
+    val options = parseOptions(question.options)
     val selected = selectedAnswers[qid] ?: ""
     val gradeResult = gradeResults[qid]
     val answered = gradeResult != null
@@ -427,11 +337,8 @@ private fun QuizCardView(
                 horizontalArrangement = Arrangement.Center
             ) {
                 questions.forEachIndexed { i, q ->
-                    val qGrade = gradeResults[q["id"]]
-                    val isCorrect = qGrade?.let { g ->
-                        val c = g["is_correct"]
-                        c == true || c.toString() == "True"
-                    }
+                    val qGrade = gradeResults[q.id]
+                    val isCorrect = qGrade?.is_correct
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 3.dp)
@@ -486,14 +393,9 @@ private fun QuizCardView(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                val kps = question["knowledge_points"]
-                if (!kps.isNullOrEmpty()) {
-                    val tags = try {
-                        JSONArray(kps).let { arr -> (0 until arr.length()).map { arr.getString(it) } }
-                    } catch (e: Exception) { emptyList() }
-                    tags.take(3).forEach { tag ->
-                        SuggestionChip(onClick = {}, label = { Text(tag, fontSize = 10.sp) })
-                    }
+                val tags = parseKpList(question.knowledge_points)
+                tags.take(3).forEach { tag ->
+                    SuggestionChip(onClick = {}, label = { Text(tag, fontSize = 10.sp) })
                 }
                 SuggestionChip(
                     onClick = {},
@@ -505,7 +407,7 @@ private fun QuizCardView(
 
             // Question text
             Text(
-                question["question"] ?: "",
+                question.question,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.fillMaxWidth()
@@ -537,11 +439,11 @@ private fun QuizCardView(
                 // single_choice / multi_choice
                 options.forEachIndexed { idx, opt ->
                     val isSelected = selected == idx.toString()
-                    val isCorrectAnswer = question["answer"]?.let { answer ->
+                    val isCorrectAnswer = question.answer.let { answer ->
                         answer.trim().equals(opt.trim(), ignoreCase = true) ||
                         answer.trim().equals((idx + 1).toString(), ignoreCase = true) ||
                         answer.trim().equals(('A' + idx).toString(), ignoreCase = true)
-                    } ?: false
+                    }
 
                     Card(
                         modifier = Modifier
@@ -586,8 +488,7 @@ private fun QuizCardView(
             // Grade result
             gradeResult?.let { result ->
                 Spacer(modifier = Modifier.height(16.dp))
-                val correct = result["is_correct"]
-                val isCorrect = correct == true || correct.toString() == "True"
+                val isCorrect = result.is_correct
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -611,20 +512,18 @@ private fun QuizCardView(
                                 fontSize = 14.sp
                             )
                         }
-                        result["explanation"]?.let { exp ->
-                            if (exp.toString().isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    exp.toString(),
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                        if (result.explanation.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                result.explanation,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         if (!isCorrect && qType != "short_answer") {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                "正确答案: ${question["answer"] ?: ""}",
+                                "正确答案: ${question.answer}",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.primary
@@ -664,10 +563,7 @@ private fun QuizCardView(
             // Summary when all done
             if (completedCount == total) {
                 Spacer(modifier = Modifier.height(8.dp))
-                val correctCount = gradeResults.values.count { g ->
-                    val c = g?.get("is_correct")
-                    c == true || c.toString() == "True"
-                }
+                val correctCount = gradeResults.values.count { it.is_correct }
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -687,7 +583,7 @@ private fun QuizCardView(
 }
 
 /** Parse options JSON string into a list of option strings. */
-private fun parseOptions(optionsJson: String?): List<String> {
+internal fun parseOptions(optionsJson: String?): List<String> {
     if (optionsJson.isNullOrBlank()) return emptyList()
     return try {
         val arr = JSONArray(optionsJson)
@@ -695,5 +591,16 @@ private fun parseOptions(optionsJson: String?): List<String> {
     } catch (e: Exception) {
         // Fallback: split by newline if not JSON
         optionsJson.lines().filter { it.isNotBlank() }
+    }
+}
+
+/** Parse knowledge_points JSON string into a list of tag strings. */
+internal fun parseKpList(kpJson: String?): List<String> {
+    if (kpJson.isNullOrBlank()) return emptyList()
+    return try {
+        val arr = JSONArray(kpJson)
+        (0 until arr.length()).map { arr.getString(it) }
+    } catch (e: Exception) {
+        kpJson.lines().filter { it.isNotBlank() }
     }
 }

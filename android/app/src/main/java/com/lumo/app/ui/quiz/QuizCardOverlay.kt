@@ -15,10 +15,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumo.app.data.LumoRepository
+import com.lumo.app.data.dto.GradeResultDto
+import com.lumo.app.data.dto.QuestionDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 
 /**
  * Full-screen quiz card overlay for in-chat quiz mode.
@@ -26,20 +28,20 @@ import org.json.JSONArray
  * Flow: chat triggers quiz generation → this overlay shows one question at a time
  * as a flashcard → after all questions answered, asks whether to save to 题库.
  *
- * @param questions List of question maps (from generate_quiz bridge call)
+ * @param questions List of questions (from generate_quiz bridge call)
  * @param onExit Called when user finishes or exits
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizCardOverlay(
-    questions: List<Map<String, String?>>,
+    questions: List<QuestionDto>,
     onExit: () -> Unit,
 ) {
     val repo = LumoRepository.get()
     val scope = rememberCoroutineScope()
     var currentIndex by remember { mutableStateOf(0) }
     var selectedAnswers by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var gradeResults by remember { mutableStateOf<Map<String, Map<String, Any?>?>>(emptyMap()) }
+    var gradeResults by remember { mutableStateOf<Map<String, GradeResultDto>>(emptyMap()) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
 
@@ -71,10 +73,7 @@ fun QuizCardOverlay(
     ) { padding ->
         if (allDone) {
             // Summary view
-            val correctCount = gradeResults.values.count { g ->
-                val c = g?.get("is_correct")
-                c == true || c.toString() == "True"
-            }
+            val correctCount = gradeResults.values.count { it.is_correct }
             Column(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -131,7 +130,7 @@ fun QuizCardOverlay(
                             gradeResults = gradeResults + (qid to result)
                             // Auto-advance after a short delay
                             if (currentIndex < total - 1) {
-                                kotlinx.coroutines.delay(1500)
+                                delay(1500)
                                 currentIndex++
                             }
                         } catch (e: Exception) {}
@@ -191,20 +190,20 @@ fun QuizCardOverlay(
 
 @Composable
 private fun QuizCardContent(
-    questions: List<Map<String, String?>>,
+    questions: List<QuestionDto>,
     currentIndex: Int,
     onIndexChange: (Int) -> Unit,
     selectedAnswers: Map<String, String>,
-    gradeResults: Map<String, Map<String, Any?>?>,
+    gradeResults: Map<String, GradeResultDto>,
     onAnswerSelected: (String, String) -> Unit,
     onSubmit: (String, String) -> Unit,
     onReset: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val question = questions[currentIndex]
-    val qid = question["id"] ?: return
-    val qType = question["question_type"] ?: "single_choice"
-    val options = parseOptions(question["options"])
+    val qid = question.id
+    val qType = question.question_type
+    val options = parseOptions(question.options)
     val selected = selectedAnswers[qid] ?: ""
     val gradeResult = gradeResults[qid]
     val answered = gradeResult != null
@@ -226,11 +225,8 @@ private fun QuizCardContent(
                 horizontalArrangement = Arrangement.Center
             ) {
                 questions.forEachIndexed { i, q ->
-                    val qGrade = gradeResults[q["id"]]
-                    val isCorrect = qGrade?.let { g ->
-                        val c = g["is_correct"]
-                        c == true || c.toString() == "True"
-                    }
+                    val qGrade = gradeResults[q.id]
+                    val isCorrect = qGrade?.is_correct
                     Box(
                         modifier = Modifier
                             .padding(horizontal = 3.dp)
@@ -290,7 +286,7 @@ private fun QuizCardContent(
 
             // Question text
             Text(
-                question["question"] ?: "",
+                question.question,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.fillMaxWidth()
@@ -321,11 +317,11 @@ private fun QuizCardContent(
             } else {
                 options.forEachIndexed { idx, opt ->
                     val isSelected = selected == idx.toString()
-                    val isCorrectAnswer = question["answer"]?.let { answer ->
+                    val isCorrectAnswer = question.answer.let { answer ->
                         answer.trim().equals(opt.trim(), ignoreCase = true) ||
                         answer.trim().equals((idx + 1).toString(), ignoreCase = true) ||
                         answer.trim().equals(('A' + idx).toString(), ignoreCase = true)
-                    } ?: false
+                    }
 
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
@@ -368,8 +364,7 @@ private fun QuizCardContent(
             // Grade result
             gradeResult?.let { result ->
                 Spacer(modifier = Modifier.height(16.dp))
-                val correct = result["is_correct"]
-                val isCorrect = correct == true || correct.toString() == "True"
+                val isCorrect = result.is_correct
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -393,16 +388,14 @@ private fun QuizCardContent(
                                 fontSize = 14.sp
                             )
                         }
-                        result["explanation"]?.let { exp ->
-                            if (exp.toString().isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(exp.toString(), fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                        if (result.explanation.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(result.explanation, fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (!isCorrect && qType != "short_answer") {
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("正确答案: ${question["answer"] ?: ""}",
+                            Text("正确答案: ${question.answer}",
                                 fontSize = 13.sp, fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.primary)
                         }
@@ -437,16 +430,5 @@ private fun QuizCardContent(
                 }
             }
         }
-    }
-}
-
-/** Parse options JSON string into a list of option strings. */
-private fun parseOptions(optionsJson: String?): List<String> {
-    if (optionsJson.isNullOrBlank()) return emptyList()
-    return try {
-        val arr = JSONArray(optionsJson)
-        (0 until arr.length()).map { arr.getString(it) }
-    } catch (e: Exception) {
-        optionsJson.lines().filter { it.isNotBlank() }
     }
 }

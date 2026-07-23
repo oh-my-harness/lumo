@@ -14,15 +14,17 @@ Android App (Kotlin + Jetpack Compose)
 ```
 
 ## 仓库结构
-
 ```
-crates/
-├── lumo-runtime/   # uniffi 绑定 + 流式 callback + 生命周期管理
-├── lumo-agent/     # 能力路由 + workflow 定义 + 提示词 + LLM provider
-├── lumo-tools/     # read_memory / write_memory
-└── lumo-store/     # SQLite 全量存储
-android/            # Kotlin + Jetpack Compose 前端
-docs/               # 设计文档
+python/lumo/
+├── bridge/   # Chaquopy 入口，按业务域拆分（chat/plans/quiz/notes/stats/daily）
+├── store/    # SQLite 存储层，按表域拆分 + migration 框架
+├── agent.py  # Senza ChatSession + LLM 调用
+├── tools.py  # read_memory / write_memory / search_notes / search_quiz_errors
+├── workflows.py  # 计划生成 / 测验 workflow 定义
+├── config.py # ProviderConfig
+└── prompts.py
+android/      # Kotlin + Jetpack Compose 前端（MVVM + ViewModel + StateFlow）
+docs/         # 设计文档
 ```
 
 ## License

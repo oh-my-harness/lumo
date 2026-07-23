@@ -3,10 +3,8 @@ package com.lumo.app.ui.profile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -18,47 +16,39 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lumo.app.data.LumoRepository
-import kotlinx.coroutines.Dispatchers
+import com.lumo.app.ui.plans.CreatePlanScreen
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun ProfileScreen() {
-    val repo = LumoRepository.get()
-    var config by remember { mutableStateOf<Map<String, String>?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var showConfig by remember { mutableStateOf(false) }
+    val vm: ProfileViewModel = viewModel { ProfileViewModel(LumoRepository.get()) }
+    val uiState by vm.uiState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var testResult by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        loading = true
-        try {
-            config = repo.getProviderConfig()
-        } catch (e: Exception) {}
-        loading = false
-    }
+    LaunchedEffect(Unit) { vm.load() }
 
-    if (showConfig) {
+    if (uiState.showConfig) {
         ModelConfigScreen(
-            currentConfig = config,
+            currentConfig = uiState.config,
             onSave = { type, key, url, model ->
-                scope.launch {
-                    try {
-                        repo.saveProviderConfig(type, key, url, model)
-                        config = repo.getProviderConfig()
-                    } catch (e: Exception) {}
-                    showConfig = false
-                }
+                vm.saveConfig(type, key, url, model)
             },
             onTest = { type, key, url, model ->
                 scope.launch {
+                    testResult = "测试中..."
                     try {
-                        withContext(Dispatchers.IO) { repo.testConnection(type, key, url, model) }
-                    } catch (e: Exception) {}
+                        testResult = vm.testConnection(type, key, url, model)
+                    } catch (e: Exception) {
+                        testResult = "错误: ${e.message}"
+                    }
                 }
             },
-            onBack = { showConfig = false }
+            testResult = testResult,
+            onBack = { vm.showConfig(false) }
         )
         return
     }
@@ -67,14 +57,14 @@ fun ProfileScreen() {
         Text("我的", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (loading) {
+        if (uiState.loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
             SectionHeader("模型配置")
             Card(
-                modifier = Modifier.fillMaxWidth().clickable { showConfig = true },
+                modifier = Modifier.fillMaxWidth().clickable { vm.showConfig(true) },
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -83,10 +73,10 @@ fun ProfileScreen() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(if (config != null) "已配置" else "未配置", fontWeight = FontWeight.Medium)
-                        if (config != null) {
+                        Text(if (uiState.config != null) "已配置" else "未配置", fontWeight = FontWeight.Medium)
+                        if (uiState.config != null) {
                             Text(
-                                "${config!!["provider_type"]} / ${config!!["model"]}",
+                                "${uiState.config!!.provider_type} / ${uiState.config!!.model}",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -106,17 +96,16 @@ private fun SectionHeader(text: String) {
 
 @Composable
 private fun ModelConfigScreen(
-    currentConfig: Map<String, String>?,
+    currentConfig: com.lumo.app.data.dto.ProviderConfigDto?,
     onSave: (String, String, String, String) -> Unit,
     onTest: (String, String, String, String) -> Unit,
+    testResult: String,
     onBack: () -> Unit
 ) {
-    var providerType by remember { mutableStateOf(currentConfig?.get("provider_type") ?: "openai") }
-    var apiKey by remember { mutableStateOf(currentConfig?.get("api_key") ?: "") }
-    var baseUrl by remember { mutableStateOf(currentConfig?.get("base_url") ?: "") }
-    var model by remember { mutableStateOf(currentConfig?.get("model") ?: "gpt-4o") }
-    var testResult by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
+    var providerType by remember { mutableStateOf(currentConfig?.provider_type ?: "openai") }
+    var apiKey by remember { mutableStateOf(currentConfig?.api_key ?: "") }
+    var baseUrl by remember { mutableStateOf(currentConfig?.base_url ?: "") }
+    var model by remember { mutableStateOf(currentConfig?.model ?: "gpt-4o") }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(16.dp)) {
@@ -233,19 +222,7 @@ private fun ModelConfigScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        testResult = "测试中..."
-                        try {
-                            val result = withContext(Dispatchers.IO) {
-                                LumoRepository.get().testConnection(providerType, apiKey, baseUrl, model)
-                            }
-                            testResult = result
-                        } catch (e: Exception) {
-                            testResult = "错误: ${e.message}"
-                        }
-                    }
-                },
+                onClick = { onTest(providerType, apiKey, baseUrl, model) },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("测试连接")
@@ -296,85 +273,6 @@ private fun ModelConfigScreen(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun CreatePlanScreen(
-    onSave: (String, String, Int, String, String) -> Unit,
-    onBack: () -> Unit
-) {
-    var goal by remember { mutableStateOf("") }
-    var dailyMinutes by remember { mutableStateOf("60") }
-    var generating by remember { mutableStateOf(false) }
-    var genResult by remember { mutableStateOf("") }
-    val repo = LumoRepository.get()
-    val scope = rememberCoroutineScope()
-
-    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-            }
-            Text("新建学习计划", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            TextButton(
-                onClick = {
-                    if (goal.isNotBlank() && !generating) {
-                        scope.launch {
-                            generating = true
-                            genResult = "AI 正在生成计划..."
-                            try {
-                                val mins = dailyMinutes.toIntOrNull() ?: 60
-                                val result = withContext(Dispatchers.IO) {
-                                    repo.generatePlan(goal, mins)
-                                }
-                                @Suppress("UNCHECKED_CAST")
-                                val weekCount = (result["weeks"] as? List<*>)?.size ?: 0
-                                genResult = "计划已生成！$weekCount 周大纲已创建"
-                                generating = false
-                                // 刷新列表
-                                onSave("", goal, mins, "", "")
-                            } catch (e: Exception) {
-                                genResult = "错误: ${e.message}"
-                                generating = false
-                            }
-                        }
-                    }
-                },
-                enabled = !generating && goal.isNotBlank()
-            ) {
-                if (generating) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                else Text("生成")
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = goal,
-            onValueChange = { goal = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("学习目标") },
-            placeholder = { Text("如：2 个月学会前端基础，每天 1 小时") },
-            minLines = 2
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = dailyMinutes,
-            onValueChange = { dailyMinutes = it.filter { c -> c.isDigit() } },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("每日学习时长（分钟）") },
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-        if (genResult.isNotEmpty()) {
-            Text(genResult, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

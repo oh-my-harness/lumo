@@ -16,31 +16,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.lumo.app.data.LumoRepository
 import com.lumo.app.ui.markdown.MarkdownRenderer
 import com.lumo.app.ui.quiz.QuizCardOverlay
 import com.lumo.app.ui.components.LumoChatBubble
 import com.lumo.app.ui.components.LumoTypingIndicator
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatListScreen(navController: NavController) {
-    val repo = LumoRepository.get()
-    var sessions by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    val scope = rememberCoroutineScope()
+    val vm: ChatListViewModel = viewModel(factory = ChatListViewModel.factory(LumoRepository.get()))
+    val state by vm.uiState.collectAsState()
 
-    LaunchedEffect(Unit) {
-        loading = true
-        try { sessions = repo.listSessions() } catch (e: Exception) {}
-        loading = false
-    }
+    LaunchedEffect(Unit) { vm.load() }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -50,27 +40,21 @@ fun ChatListScreen(navController: NavController) {
         ) {
             Text("对话", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             FloatingActionButton(onClick = {
-                val sid = repo.createSession("新对话")
-                navController.navigate("chat/$sid")
+                val sid = vm.createSession()
+                if (sid.isNotEmpty()) navController.navigate("chat/$sid")
             }) { Icon(Icons.Filled.Add, contentDescription = "新建对话") }
         }
 
         // 搜索栏
         OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { query ->
-                searchQuery = query
-                scope.launch {
-                    searchResults = if (query.isBlank()) emptyList()
-                    else withContext(Dispatchers.IO) { repo.searchMessages(query) }
-                }
-            },
+            value = state.searchQuery,
+            onValueChange = { query -> vm.search(query) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             placeholder = { Text("搜索对话内容...") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = ""; searchResults = emptyList() }) {
+                if (state.searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { vm.search("") }) {
                         Icon(Icons.Filled.Clear, contentDescription = "清除")
                     }
                 }
@@ -78,40 +62,40 @@ fun ChatListScreen(navController: NavController) {
             singleLine = true
         )
 
-        if (loading) {
+        if (state.loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        } else if (searchQuery.isNotEmpty()) {
+        } else if (state.searchQuery.isNotEmpty()) {
             // 搜索结果模式
-            if (searchResults.isEmpty()) {
+            if (state.searchResults.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("未找到匹配内容", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                    items(searchResults) { msg ->
+                    items(state.searchResults) { msg ->
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                                .clickable { navController.navigate("chat/${msg["session_id"]}") },
+                                .clickable { navController.navigate("chat/${msg.session_id}") },
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Text(msg["content"] ?: "", maxLines = 2,
+                                Text(msg.content, maxLines = 2,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
                 }
             }
-        } else if (sessions.isEmpty()) {
+        } else if (state.sessions.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("点击 + 开始新的对话", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                items(sessions) { session ->
+                items(state.sessions) { session ->
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            .clickable { navController.navigate("chat/${session["id"]}") },
+                            .clickable { navController.navigate("chat/${session.id}") },
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
@@ -120,16 +104,11 @@ fun ChatListScreen(navController: NavController) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(session["title"]?.ifEmpty { "新对话" } ?: "新对话", fontWeight = FontWeight.Medium)
-                                Text(session["updated_at"]?.take(10) ?: "", fontSize = 12.sp,
+                                Text(session.title.ifEmpty { "新对话" }, fontWeight = FontWeight.Medium)
+                                Text(session.updated_at.take(10), fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = {
-                                scope.launch {
-                                    withContext(Dispatchers.IO) { repo.deleteSession(session["id"]!!) }
-                                    sessions = withContext(Dispatchers.IO) { repo.listSessions() }
-                                }
-                            }) {
+                            IconButton(onClick = { vm.deleteSession(session.id) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "删除",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -144,40 +123,19 @@ fun ChatListScreen(navController: NavController) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatDetailScreen(sessionId: String, navController: NavController) {
-    val repo = LumoRepository.get()
-    var messages by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var inputText by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    var chatStarted by remember { mutableStateOf(false) }
-    var quickPrompts by remember { mutableStateOf<List<Map<String, String>>>(emptyList()) }
-    // Quiz overlay state
-    var quizQuestions by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var showQuiz by remember { mutableStateOf(false) }
-    var generatingQuiz by remember { mutableStateOf(false) }
-    var quizTopic by remember { mutableStateOf("") }
-    var showQuizGenDialog by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    val vm: ChatDetailViewModel = viewModel(factory = ChatDetailViewModel.factory(LumoRepository.get()))
+    val state by vm.uiState.collectAsState()
 
-    LaunchedEffect(sessionId) {
-        try {
-            messages = repo.getMessages(sessionId)
-            quickPrompts = repo.getQuickPrompts()
-            // If messages exist, chat was already started (e.g. via task context)
-            if (messages.isNotEmpty()) chatStarted = true
-        } catch (e: Exception) {}
-    }
+    LaunchedEffect(sessionId) { vm.load(sessionId) }
+
     val listState = rememberLazyListState()
-    LaunchedEffect(messages.size, messages.lastOrNull()?.get("content")) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.content) {
+        if (state.messages.isNotEmpty()) {
+            listState.animateScrollToItem(state.messages.size - 1)
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
-    var showSaveNoteDialog by remember { mutableStateOf(false) }
-    var savingNote by remember { mutableStateOf(false) }
-    var noteSaved by remember { mutableStateOf(false) }
-
         TopAppBar(
             title = { Text("对话") },
             navigationIcon = {
@@ -186,66 +144,58 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                 }
             },
             actions = {
-                IconButton(onClick = { showQuizGenDialog = true }) {
+                IconButton(onClick = { vm.setShowQuizGenDialog(true) }) {
                     Icon(Icons.Filled.Quiz, contentDescription = "出题")
                 }
                 IconButton(
-                    onClick = { if (!savingNote) showSaveNoteDialog = true },
-                    enabled = !savingNote
+                    onClick = { if (!state.savingNote) vm.setShowSaveNoteDialog(true) },
+                    enabled = !state.savingNote
                 ) {
                     Icon(
-                        if (noteSaved) Icons.Filled.CheckCircle else Icons.Filled.NoteAdd,
+                        if (state.noteSaved) Icons.Filled.CheckCircle else Icons.Filled.NoteAdd,
                         contentDescription = "保存为笔记",
-                        tint = if (noteSaved) MaterialTheme.colorScheme.primary
+                        tint = if (state.noteSaved) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
         )
 
-        if (showSaveNoteDialog) {
+        if (state.showSaveNoteDialog) {
             AlertDialog(
-                onDismissRequest = { if (!savingNote) showSaveNoteDialog = false },
+                onDismissRequest = { if (!state.savingNote) vm.setShowSaveNoteDialog(false) },
                 title = { Text("保存为笔记") },
                 text = {
-                    if (savingNote) {
+                    if (state.savingNote) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("AI 正在总结对话内容...")
                         }
                     } else {
-                        Text(if (noteSaved) "该对话已有笔记，是否更新内容？" else "是否让 AI 总结这段对话并保存为笔记？")
+                        Text(if (state.noteSaved) "该对话已有笔记，是否更新内容？" else "是否让 AI 总结这段对话并保存为笔记？")
                     }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            if (savingNote) return@TextButton
-                            scope.launch {
-                                savingNote = true
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        repo.saveConversationAsNote(sessionId)
-                                    }
-                                    noteSaved = true
-                                    showSaveNoteDialog = false
-                                } catch (e: Exception) {
-                                    // show error in dialog
-                                }
-                                savingNote = false
+                            if (state.savingNote) return@TextButton
+                            if (!state.chatStarted) {
+                                vm.startChatIfNeeded(sessionId) { vm.saveConversationAsNote(sessionId) }
+                            } else {
+                                vm.saveConversationAsNote(sessionId)
                             }
                         },
-                        enabled = !savingNote
- ) {
-                        if (savingNote) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                        else Text(if (noteSaved) "更新" else "保存")
+                        enabled = !state.savingNote
+                    ) {
+                        if (state.savingNote) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        else Text(if (state.noteSaved) "更新" else "保存")
                     }
                 },
                 dismissButton = {
                     TextButton(
-                        onClick = { if (!savingNote) showSaveNoteDialog = false },
-                        enabled = !savingNote
+                        onClick = { if (!state.savingNote) vm.setShowSaveNoteDialog(false) },
+                        enabled = !state.savingNote
                     ) { Text("取消") }
                 }
             )
@@ -256,9 +206,9 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messages) { msg ->
-                val isUser = msg["role"] == "user"
-                val content = msg["content"] ?: ""
+            items(state.messages) { msg ->
+                val isUser = msg.role == "user"
+                val content = msg.content
                 if (isUser) {
                     LumoChatBubble(
                         message = content,
@@ -280,7 +230,7 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                     }
                 }
             }
-            if (loading) {
+            if (state.loading) {
                 item {
                     Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         LumoTypingIndicator()
@@ -289,16 +239,16 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
             }
         }
 
-        if (messages.isNotEmpty() && !loading) {
+        if (state.messages.isNotEmpty() && !state.loading) {
             LazyRow(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = PaddingValues(horizontal = 4.dp)
             ) {
-                items(quickPrompts) { prompt ->
+                items(state.quickPrompts) { prompt ->
                     AssistChip(
-                        onClick = { inputText = prompt["prompt"] ?: "" },
-                        label = { Text(prompt["label"] ?: "") }
+                        onClick = { vm.updateInputText(prompt.prompt) },
+                        label = { Text(prompt.label) }
                     )
                 }
             }
@@ -306,83 +256,44 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
 
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = inputText, onValueChange = { inputText = it },
+                value = state.inputText, onValueChange = { vm.updateInputText(it) },
                 modifier = Modifier.weight(1f), placeholder = { Text("输入消息...", fontSize = 13.sp) }, maxLines = 2, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            val sendIcon = if (loading) Icons.Filled.Stop else Icons.Filled.Send
+            val sendIcon = if (state.loading) Icons.Filled.Stop else Icons.Filled.Send
             IconButton(onClick = {
-                if (loading) {
-                    // 停止生成
-                    scope.launch { withContext(Dispatchers.IO) { repo.abortChat() } }
+                if (state.loading) {
+                    vm.abortChat()
                     return@IconButton
                 }
-                if (inputText.isNotBlank()) {
-                    val text = inputText
-                    inputText = ""
-                    scope.launch {
-                        loading = true
-                        var aiIndex = -1
-                        try {
-                            if (!chatStarted) {
-                                withContext(Dispatchers.IO) { repo.startChat(sessionId) }
-                                chatStarted = true
-                            }
-                            messages = messages + mapOf("role" to "user", "content" to text)
-                            // 流式：先插入空的 AI 抂点，逐 token 更新
-                            aiIndex = messages.size
-                            messages = messages + mapOf("role" to "assistant", "content" to "")
-                            val fullResponse = withContext(Dispatchers.IO) {
-                                repo.streamChat(text) { token ->
-                                    scope.launch(Dispatchers.Main) {
-                                        val current = messages[aiIndex]["content"] ?: ""
-                                        messages = messages.toMutableList().also {
-                                            it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
-                                                m["content"] = current + token
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            // 确保最终内容完整（防止 token 回调遗漏）
-                            messages = messages.toMutableList().also {
-                                it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
-                                    m["content"] = fullResponse
-                                }
-                            }
-                        } catch (e: Exception) {
-                            if (aiIndex >= 0 && aiIndex < messages.size) {
-                                messages = messages.toMutableList().also {
-                                    it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
-                                        m["content"] = "错误: ${e.message}"
-                                    }
-                                }
-                            } else {
-                                messages = messages + mapOf("role" to "assistant", "content" to "错误: ${e.message}")
-                            }
-                        }
-                        loading = false
+                if (state.inputText.isNotBlank()) {
+                    val text = state.inputText
+                    vm.updateInputText("")
+                    if (!state.chatStarted) {
+                        vm.startChatIfNeeded(sessionId) { vm.streamMessage(text) }
+                    } else {
+                        vm.streamMessage(text)
                     }
                 }
-            }) { Icon(sendIcon, contentDescription = if (loading) "停止" else "发送") }
+            }) { Icon(sendIcon, contentDescription = if (state.loading) "停止" else "发送") }
         }
 
         // Quiz generation dialog
-        if (showQuizGenDialog) {
+        if (state.showQuizGenDialog) {
             AlertDialog(
-                onDismissRequest = { if (!generatingQuiz) showQuizGenDialog = false },
+                onDismissRequest = { if (!state.generatingQuiz) vm.setShowQuizGenDialog(false) },
                 title = { Text("出题") },
                 text = {
                     Column {
                         OutlinedTextField(
-                            value = quizTopic,
-                            onValueChange = { quizTopic = it },
+                            value = state.quizTopic,
+                            onValueChange = { vm.setQuizTopic(it) },
                             label = { Text("知识点 / 主题") },
                             placeholder = { Text("如：Python 闭包") },
                             singleLine = true,
-                            enabled = !generatingQuiz
+                            enabled = !state.generatingQuiz
                         )
-                        if (generatingQuiz) {
+                        if (state.generatingQuiz) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp))
@@ -396,65 +307,31 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            if (quizTopic.isNotBlank() && !generatingQuiz) {
-                                scope.launch {
-                                    generatingQuiz = true
-                                    try {
-                                        val result = withContext(Dispatchers.IO) {
-                                            repo.generateQuiz(quizTopic, 3)
-                                        }
-                                        // Extract questions from result
-                                        @Suppress("UNCHECKED_CAST")
-                                        val qList = (result["questions"] as? List<*>)?.mapNotNull { q ->
-                                            @Suppress("UNCHECKED_CAST")
-                                            (q as? Map<String, Any?>)?.map { (k, v) ->
-                                                k to v?.toString()
-                                            }?.toMap()
-                                        } ?: emptyList()
-                                        if (qList.isNotEmpty()) {
-                                            quizQuestions = qList
-                                            showQuiz = true
-                                            showQuizGenDialog = false
-                                            quizTopic = ""
-                                        }
-                                    } catch (e: Exception) {
-                                        // Fallback: load from quiz bank
-                                        try {
-                                            val allQ = withContext(Dispatchers.IO) { repo.getQuizQuestions() }
-                                            if (allQ.isNotEmpty()) {
-                                                quizQuestions = allQ.take(3)
-                                                showQuiz = true
-                                                showQuizGenDialog = false
-                                                quizTopic = ""
-                                            }
-                                        } catch (e2: Exception) {}
-                                    }
-                                    generatingQuiz = false
-                                }
+                            if (state.quizTopic.isNotBlank() && !state.generatingQuiz) {
+                                vm.generateQuiz(state.quizTopic, 3)
                             }
                         },
-                        enabled = !generatingQuiz && quizTopic.isNotBlank()
+                        enabled = !state.generatingQuiz && state.quizTopic.isNotBlank()
                     ) {
-                        if (generatingQuiz) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        if (state.generatingQuiz) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                         else Text("出题")
                     }
                 },
                 dismissButton = {
                     TextButton(
-                        onClick = { if (!generatingQuiz) showQuizGenDialog = false },
-                        enabled = !generatingQuiz
+                        onClick = { if (!state.generatingQuiz) vm.setShowQuizGenDialog(false) },
+                        enabled = !state.generatingQuiz
                     ) { Text("取消") }
                 }
             )
         }
 
         // Full-screen quiz overlay
-        if (showQuiz && quizQuestions.isNotEmpty()) {
+        if (state.showQuiz && state.quizQuestions.isNotEmpty()) {
             QuizCardOverlay(
-                questions = quizQuestions,
-                onExit = { showQuiz = false; quizQuestions = emptyList() }
+                questions = state.quizQuestions,
+                onExit = { vm.setShowQuiz(false) }
             )
         }
     }
 }
-

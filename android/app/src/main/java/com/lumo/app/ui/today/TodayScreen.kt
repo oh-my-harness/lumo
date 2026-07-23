@@ -16,52 +16,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lumo.app.data.LumoRepository
+import com.lumo.app.data.dto.CheckinDayDto
+import com.lumo.app.data.dto.KnowledgePointDto
+import com.lumo.app.data.dto.PlanDto
+import com.lumo.app.data.dto.StatsDto
+import com.lumo.app.data.dto.StudyTrendDto
+import com.lumo.app.data.dto.TaskDto
 import com.lumo.app.ui.components.LumoStatsCard
 import com.lumo.app.ui.components.LumoSegmentedControl
 import com.lumo.app.ui.components.LumoEmptyState
-import com.lumo.app.ui.profile.CreatePlanScreen
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import com.lumo.app.ui.plans.CreatePlanScreen
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(navController: androidx.navigation.NavController) {
-    val repo = LumoRepository.get()
-    var tasks by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var streak by remember { mutableStateOf(0) }
-    var totalStudy by remember { mutableStateOf(0) }
-    var loading by remember { mutableStateOf(true) }
-    var selectedTab by remember { mutableStateOf(0) }
-    val scope = rememberCoroutineScope()
-
-    // Plans + stats loaded once
-    var plans by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var stats by remember { mutableStateOf<Map<String, Any?>>(emptyMap()) }
+fun TodayScreen(
+    navController: androidx.navigation.NavController,
+    viewModel: TodayViewModel = viewModel { TodayViewModel(LumoRepository.get()) },
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pomodoro by viewModel.pomodoro.collectAsStateWithLifecycle()
+    val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     var showCreatePlan by remember { mutableStateOf(false) }
-
-    // Pomodoro state
-    var pomodoroRunning by remember { mutableStateOf(false) }
-    var pomodoroSeconds by remember { mutableStateOf(25 * 60) }
-    var pomodoroDuration by remember { mutableStateOf(25) }
-    var pomodoroTaskId by remember { mutableStateOf<String?>(null) }
-    var pomodoroPlanId by remember { mutableStateOf<String?>(null) }
-    var pomodoroStartedAt by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        loading = true
-        try {
-            tasks = repo.getTodayTasks()
-            streak = repo.getStreak()
-            totalStudy = repo.getTotalStudyTime()
-            plans = repo.listPlans()
-            stats = repo.getStats()
-        } catch (e: Exception) {}
-        loading = false
-    }
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         // Header: streak + study time
@@ -71,14 +52,14 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
         ) {
             LumoStatsCard(
                 label = "连续打卡",
-                value = "$streak 天",
+                value = "${uiState.streak} 天",
                 icon = Icons.Filled.LocalFireDepartment,
                 accentColor = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.weight(1f),
             )
             LumoStatsCard(
                 label = "学习时长",
-                value = "${totalStudy / 60} 分钟",
+                value = "${uiState.totalStudyMinutes / 60} 分钟",
                 icon = Icons.Filled.Schedule,
                 accentColor = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
@@ -95,8 +76,8 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
             )
         ) {
             Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                val mins = pomodoroSeconds / 60
-                val secs = pomodoroSeconds % 60
+                val mins = pomodoro.seconds / 60
+                val secs = pomodoro.seconds % 60
                 Text(
                     String.format("%02d:%02d", mins, secs),
                     fontSize = 32.sp,
@@ -109,13 +90,8 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
                 ) {
                     listOf(15 to "15+5", 25 to "25+5", 50 to "50+10").forEach { (mins, label) ->
                         FilterChip(
-                            selected = pomodoroDuration == mins,
-                            onClick = {
-                                if (!pomodoroRunning) {
-                                    pomodoroDuration = mins
-                                    pomodoroSeconds = mins * 60
-                                }
-                            },
+                            selected = pomodoro.duration == mins,
+                            onClick = { viewModel.setPomodoroDuration(mins) },
                             label = { Text(label) }
                         )
                     }
@@ -123,59 +99,28 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = {
-                            if (pomodoroRunning) {
-                                pomodoroRunning = false
-                            } else {
-                                pomodoroRunning = true
-                                pomodoroStartedAt = java.time.Instant.now().toString()
-                                scope.launch {
-                                    while (pomodoroRunning && pomodoroSeconds > 0) {
-                                        delay(1000)
-                                        if (pomodoroRunning) {
-                                            pomodoroSeconds--
-                                            if (pomodoroSeconds <= 0) {
-                                                pomodoroRunning = false
-                                                val taskId = pomodoroTaskId
-                                                val planId = pomodoroPlanId
-                                                if (taskId != null && planId != null) {
-                                                    withContext(Dispatchers.IO) {
-                                                        repo.recordPomodoro(
-                                                            taskId, planId,
-                                                            pomodoroDuration * 60, pomodoroStartedAt
-                                                        )
-                                                        totalStudy = repo.getTotalStudyTime()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        onClick = { viewModel.togglePomodoro() }
                     ) {
                         Icon(
-                            if (pomodoroRunning) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            if (pomodoro.running) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = null
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (pomodoroRunning) "暂停" else "开始")
+                        Text(if (pomodoro.running) "暂停" else "开始")
                     }
-                    if (pomodoroRunning) {
-                        OutlinedButton(onClick = {
-                            pomodoroRunning = false
-                            pomodoroSeconds = pomodoroDuration * 60
-                        }) { Text("重置") }
+                    if (pomodoro.running) {
+                        OutlinedButton(onClick = { viewModel.resetPomodoro() }) { Text("重置") }
                     }
                 }
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
+
         // Tab switcher: 今日任务 / 学习计划 / 学习统计
         LumoSegmentedControl(
             options = listOf("今日任务", "学习计划", "学习统计"),
             selectedIndex = selectedTab,
-            onSelectionChange = { selectedTab = it },
+            onSelectionChange = { viewModel.selectTab(it) },
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(modifier = Modifier.height(12.dp))
@@ -194,77 +139,36 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
             ) {
                 when (selectedTab) {
                     0 -> TodayTasksTab(
-                        loading = loading,
-                        tasks = tasks,
-                        onComplete = { taskId, task ->
-                            val newStatus = if (task["status"] == "completed") "pending" else "completed"
-                            repo.updateTaskStatus(taskId, newStatus)
-                            tasks = repo.getTodayTasks()
+                        loading = uiState.loading,
+                        tasks = uiState.tasks,
+                        onComplete = { task ->
+                            viewModel.toggleTaskComplete(task.id, task.status)
                         },
                         onStartPomodoro = { taskId, planId ->
-                            pomodoroTaskId = taskId
-                            pomodoroPlanId = planId
-                            pomodoroRunning = true
-                            pomodoroSeconds = pomodoroDuration * 60
-                            pomodoroStartedAt = java.time.Instant.now().toString()
-                            scope.launch {
-                                while (pomodoroRunning && pomodoroSeconds > 0) {
-                                    delay(1000)
-                                    if (pomodoroRunning) {
-                                        pomodoroSeconds--
-                                        if (pomodoroSeconds <= 0) {
-                                            pomodoroRunning = false
-                                            withContext(Dispatchers.IO) {
-                                                repo.recordPomodoro(
-                                                    taskId, planId,
-                                                    pomodoroDuration * 60, pomodoroStartedAt
-                                                )
-                                                totalStudy = repo.getTotalStudyTime()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            viewModel.startPomodoro(taskId, planId)
                             // Create a chat session for this task and navigate
                             scope.launch {
-                                try {
-                                    val sessionId = withContext(Dispatchers.IO) {
-                                        val sid = repo.createSession("新对话")
-                                        repo.startChatWithTask(sid, taskId)
-                                        sid
-                                    }
+                                val sessionId = viewModel.startChatForTask(taskId)
+                                if (sessionId != null) {
                                     navController.navigate("chat/$sessionId")
-                                } catch (e: Exception) {}
+                                }
                             }
                         },
-                        onCheckin = {
-                            scope.launch {
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        val completedTaskIds = tasks.filter { it["status"] == "completed" }.mapNotNull { it["id"] }
-                                        repo.checkinToday(completedTaskIds)
-                                        streak = repo.getStreak()
-                                    }
-                                } catch (e: Exception) {}
-                            }
-                        }
+                        onCheckin = { viewModel.checkin() }
                     )
                     1 -> PlansTab(
-                        plans = plans,
+                        plans = uiState.plans,
                         onToggleStatus = { plan ->
-                            val newStatus = if (plan["status"] == "active") "paused" else "active"
-                            scope.launch {
-                                withContext(Dispatchers.IO) { repo.updatePlanStatus(plan["id"]!!, newStatus) }
-                                plans = repo.listPlans()
-                            }
+                            viewModel.togglePlanStatus(plan.id, plan.status)
                         },
                         onCreatePlan = { showCreatePlan = true }
                     )
                     2 -> StatsTab(
-                        stats = stats,
-                        plans = plans,
-                        repo = repo,
-                        scope = scope
+                        stats = uiState.stats,
+                        trend = uiState.studyTrend,
+                        heatmap = uiState.checkinHeatmap,
+                        plans = uiState.plans,
+                        mastery = uiState.knowledgeMastery,
                     )
                 }
             }
@@ -280,11 +184,9 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 CreatePlanScreen(
-                    onSave = { _, _, _, _, _ ->
-                        scope.launch {
-                            try { plans = repo.listPlans() } catch (e: Exception) {}
-                            showCreatePlan = false
-                        }
+                    onSave = {
+                        viewModel.refreshPlans()
+                        showCreatePlan = false
                     },
                     onBack = { showCreatePlan = false }
                 )
@@ -297,8 +199,8 @@ fun TodayScreen(navController: androidx.navigation.NavController) {
 @Composable
 private fun TodayTasksTab(
     loading: Boolean,
-    tasks: List<Map<String, String?>>,
-    onComplete: (String, Map<String, String?>) -> Unit,
+    tasks: List<TaskDto>,
+    onComplete: (TaskDto) -> Unit,
     onStartPomodoro: (String, String) -> Unit,
     onCheckin: () -> Unit,
 ) {
@@ -314,7 +216,7 @@ private fun TodayTasksTab(
         )
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val grouped = tasks.groupBy { it["plan_title"] ?: "未分组" }
+            val grouped = tasks.groupBy { it.plan_title ?: "未分组" }
             grouped.forEach { (planTitle, planTasks) ->
                 Text(
                     planTitle,
@@ -326,17 +228,17 @@ private fun TodayTasksTab(
                 planTasks.forEach { task ->
                     TaskCard(
                         task = task,
-                        onComplete = { onComplete(it, task) },
+                        onComplete = { onComplete(task) },
                         onStartPomodoro = onStartPomodoro
                     )
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            val completedTaskIds = tasks.filter { it["status"] == "completed" }.mapNotNull { it["id"] }
+            val hasCompleted = tasks.any { it.status == "completed" }
             Button(
                 onClick = onCheckin,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = completedTaskIds.isNotEmpty()
+                enabled = hasCompleted
             ) {
                 Icon(Icons.Filled.CheckCircle, contentDescription = null)
                 Spacer(modifier = Modifier.width(4.dp))
@@ -349,14 +251,14 @@ private fun TodayTasksTab(
 // ── Tab: 学习计划 ──
 @Composable
 private fun PlansTab(
-    plans: List<Map<String, String?>>,
-    onToggleStatus: (Map<String, String?>) -> Unit,
+    plans: List<PlanDto>,
+    onToggleStatus: (PlanDto) -> Unit,
     onCreatePlan: () -> Unit,
 ) {
     val repo = LumoRepository.get()
     val scope = rememberCoroutineScope()
     var expandedPlanId by remember { mutableStateOf<String?>(null) }
-    var planTasks by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+    var planTasks by remember { mutableStateOf<List<TaskDto>>(emptyList()) }
     var loadingTasks by remember { mutableStateOf(false) }
 
     if (plans.isEmpty()) {
@@ -383,10 +285,10 @@ private fun PlansTab(
                 }
             }
             plans.forEach { plan ->
-                val planId = plan["id"] ?: return@forEach
-                val isActive = plan["status"] == "active"
+                val planId = plan.id
+                val isActive = plan.status == "active"
                 val isExpanded = expandedPlanId == planId
-                val completedCount = planTasks.count { it["status"] == "completed" }
+                val completedCount = planTasks.count { it.status == "completed" }
                 val totalCount = planTasks.size
 
                 Card(
@@ -404,9 +306,9 @@ private fun PlansTab(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(plan["title"] ?: "", fontWeight = FontWeight.Medium)
+                                Text(plan.title, fontWeight = FontWeight.Medium)
                                 Text(
-                                    plan["goal"] ?: "",
+                                    plan.goal,
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1
@@ -431,7 +333,7 @@ private fun PlansTab(
                                     loadingTasks = true
                                     scope.launch {
                                         try {
-                                            planTasks = withContext(Dispatchers.IO) {
+                                            planTasks = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                                 repo.getPlanTasks(planId)
                                             }
                                         } catch (e: Exception) {}
@@ -461,8 +363,8 @@ private fun PlansTab(
                             } else {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     // Group tasks by week
-                                    val grouped = planTasks.groupBy { it["week_num"] ?: "1" }
-                                    grouped.toSortedMap().forEach { (weekNum, weekTasks) ->
+                                    val grouped = planTasks.groupBy { it.week_num.toString() }
+                                    grouped.toSortedMap(compareBy { it.toIntOrNull() ?: 1 }).forEach { (weekNum, weekTasks) ->
                                         Text(
                                             "第 $weekNum 周",
                                             fontSize = 12.sp,
@@ -471,7 +373,7 @@ private fun PlansTab(
                                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                                         )
                                         weekTasks.forEach { task ->
-                                            val isCompleted = task["status"] == "completed"
+                                            val isCompleted = task.status == "completed"
                                             Row(
                                                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -487,7 +389,7 @@ private fun PlansTab(
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    task["title"] ?: "",
+                                                    task.title,
                                                     fontSize = 13.sp,
                                                     textDecoration = if (isCompleted)
                                                         TextDecoration.LineThrough else null,
@@ -519,25 +421,20 @@ private fun PlansTab(
 // ── Tab: 学习统计 ──
 @Composable
 private fun StatsTab(
-    stats: Map<String, Any?>,
-    plans: List<Map<String, String?>>,
-    repo: LumoRepository,
-    scope: kotlinx.coroutines.CoroutineScope,
+    stats: StatsDto,
+    trend: StudyTrendDto?,
+    heatmap: List<CheckinDayDto>,
+    plans: List<PlanDto>,
+    mastery: List<KnowledgePointDto>,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        val totalTime = stats["total_study_time"] as? Int ?: 0
-        Text("总学习时长: ${totalTime / 60} 分钟", fontWeight = FontWeight.Medium)
+        Text("总学习时长: ${stats.total_study_time / 60} 分钟", fontWeight = FontWeight.Medium)
 
         // 学习趋势（近 7 天）
         Spacer(modifier = Modifier.height(12.dp))
         Text("近 7 天学习时长", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        var trend by remember { mutableStateOf<Map<String, Any?>?>(null) }
-        LaunchedEffect(Unit) {
-            try { trend = withContext(Dispatchers.IO) { repo.getStudyTrend("week") } } catch (e: Exception) {}
-        }
         trend?.let { t ->
-            @Suppress("UNCHECKED_CAST")
-            val data = t["data"] as? Map<String, Int> ?: emptyMap()
+            val data = t.data
             val maxVal = (data.values.maxOrNull() ?: 1).coerceAtLeast(1)
             data.entries.toList().takeLast(7).forEach { (date, seconds) ->
                 val mins = seconds / 60
@@ -565,13 +462,6 @@ private fun StatsTab(
         // 打卡热力图
         Spacer(modifier = Modifier.height(12.dp))
         Text("本月打卡", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        var heatmap by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-        LaunchedEffect(Unit) {
-            try {
-                val month = LocalDate.now().toString().take(7)
-                heatmap = withContext(Dispatchers.IO) { repo.getCheckinHeatmap(month) }
-            } catch (e: Exception) {}
-        }
         Text("打卡 ${heatmap.size} 天", fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -579,24 +469,16 @@ private fun StatsTab(
         if (plans.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
             Text("知识点掌握度", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            var mastery by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-            LaunchedEffect(plans) {
-                try {
-                    mastery = withContext(Dispatchers.IO) {
-                        repo.getKnowledgeMastery(plans.first()["id"]!!)
-                    }
-                } catch (e: Exception) {}
-            }
             mastery.forEach { kp ->
-                val level = kp["mastery_level"] ?: "0"
+                val level = kp.mastery_level
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(kp["name"] ?: "", fontSize = 12.sp)
+                    Text(kp.name, fontSize = 12.sp)
                     LinearProgressIndicator(
-                        progress = { (level.toFloatOrNull() ?: 0f) / 100f },
+                        progress = { level.toFloat() / 100f },
                         modifier = Modifier.width(100.dp)
                     )
                     Text("$level%", fontSize = 11.sp)
@@ -628,12 +510,11 @@ private fun StatCard(label: String, value: String, icon: androidx.compose.ui.gra
 
 @Composable
 private fun TaskCard(
-    task: Map<String, String?>,
+    task: TaskDto,
     onComplete: (String) -> Unit,
     onStartPomodoro: (String, String) -> Unit = { _, _ -> }
 ) {
-    val taskId = task["id"] ?: return
-    val isCompleted = task["status"] == "completed"
+    val isCompleted = task.status == "completed"
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -648,17 +529,17 @@ private fun TaskCard(
         ) {
             Checkbox(
                 checked = isCompleted,
-                onCheckedChange = { onComplete(taskId) }
+                onCheckedChange = { onComplete(task.id) }
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    task["title"] ?: "",
+                    task.title,
                     fontWeight = FontWeight.Medium,
                     textDecoration = if (isCompleted) TextDecoration.LineThrough else null
                 )
-                if (!task["description"].isNullOrEmpty()) {
+                if (!task.description.isNullOrEmpty()) {
                     Text(
-                        task["description"]!!,
+                        task.description,
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2
@@ -666,9 +547,9 @@ private fun TaskCard(
                 }
             }
             if (!isCompleted) {
-                val planId = task["plan_id"] ?: ""
+                val planId = task.plan_id
                 OutlinedButton(
-                    onClick = { onStartPomodoro(taskId, planId) },
+                    onClick = { onStartPomodoro(task.id, planId) },
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))

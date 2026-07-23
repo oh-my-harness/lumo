@@ -61,15 +61,55 @@ gh release create v0.1.0 \
 - 更新 Release notes：`gh release edit v0.1.0 --repo oh-my-harness/lumo --notes "..."`
 - Tag 不一定要在最新 commit 上——APK 是构建产物，同事下载的是文件不是代码
 
-## Chaquopy 类型陷阱
+## Chaquopy 类型契约
 
-- Kotlin `List<String>` → Python `Arrays$ArrayList`（不可迭代），需转 JSON 字符串
-- Python `True/False` → `PyObject`，需 `v.toString() == "True"` 转换
-- 嵌套 Python dict 的 `asMap()` 返回值仍是 PyObject，需递归转换
+**重构后（2026-07-23）**：所有 bridge 函数返回 JSON 字符串，Kotlin 侧用 `kotlinx.serialization` 反序列化为 data class。不再有 PyObject 手工转换或类型陷阱。
+
+- Python `bridge/` 包是 Chaquopy 入口（`py.getModule("lumo.bridge")`）
+- 所有 bridge 函数返回 `str`（JSON）或 `int`，不再返回 `dict`/`list`
+- Kotlin `LumoRepository` 用 `Json { ignoreUnknownKeys = true }` 反序列化
+- DTO 定义在 `com.lumo.app.data.dto.*`，字段名与 Python `snake_case` 对齐
 
 ## Python 层
 
-可修改 `python/lumo/` 下的所有文件（bridge/store/agent/tools/workflows/config/prompts）。修改后重新 `./gradlew assembleDebug` 即生效（Chaquopy `srcDir` 直接打包源码）。
+```
+python/lumo/
+├── bridge/          # Chaquopy 入口，按业务域拆分
+│   ├── __init__.py  # 统一 re-export
+│   ├── _serialization.py  # JSON 序列化工具
+│   ├── provider.py / chat.py / plans.py / quiz.py / notes.py / stats.py / daily.py
+├── store/           # SQLite 存储层，按表域拆分
+│   ├── __init__.py  # Store facade，委托给子 store
+│   ├── schema.py    # SCHEMA_SQL + migration 框架（PRAGMA user_version）
+│   ├── sessions.py / plans.py / notes.py / quiz.py / stats.py / memory.py
+├── agent.py         # Senza ChatSession + LLM 调用
+├── tools.py         # 4 个 Senza tool
+├── workflows.py     # 计划/测验 workflow 定义
+├── config.py        # ProviderConfig
+└── prompts.py       # 提示词模板
+```
+
+修改后重新 `./gradlew assembleDebug` 即生效（Chaquopy `srcDir` 直接打包源码）。
+
+## Kotlin 层
+
+```
+android/app/src/main/java/com/lumo/app/
+├── data/
+│   ├── LumoRepository.kt   # JSON 反序列化 + bridge 调用
+│   ├── PythonBridge.kt     # 封装 callAttr → toString()
+│   └── dto/                # 强类型 data class（@Serializable）
+├── ui/
+│   ├── today/    TodayScreen + TodayViewModel
+│   ├── chat/     ChatListScreen + ChatListViewModel, ChatDetailScreen + ChatDetailViewModel
+│   ├── quiz/     QuizScreen + QuizViewModel, QuizCardOverlay
+│   ├── notes/    NotesListScreen + NotesListViewModel, NoteEditorScreen + NoteEditorViewModel
+│   ├── profile/  ProfileScreen + ProfileViewModel
+│   ├── plans/    CreatePlanScreen + CreatePlanViewModel
+│   ├── theme/ / components/ / markdown/ / onboarding/  # 不变
+```
+
+每个 Screen 配一个 ViewModel，持有 `StateFlow<UiState>`。ViewModel 在 Composable 内用 `viewModel { XViewModel(LumoRepository.get()) }` 创建。
 
 ## 主题
 

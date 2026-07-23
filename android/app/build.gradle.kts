@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.chaquo.python")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -85,6 +86,9 @@ dependencies {
     // Lifecycle + ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.2")
+
+    // kotlinx.serialization — JSON deserialization for Python bridge
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Core
     implementation("androidx.core:core-ktx:1.13.0")
