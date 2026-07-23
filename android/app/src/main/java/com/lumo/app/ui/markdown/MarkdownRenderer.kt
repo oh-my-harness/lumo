@@ -45,6 +45,8 @@ fun MarkdownRenderer(
                 settings.allowUniversalAccessFromFileURLs = false
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
+                // Software rendering avoids GLFunctorDrawable SIGSEGV on Android 12
+                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                 loadDataWithBaseURL("about:blank", html, "text/html", "utf-8", null)
             }
         },

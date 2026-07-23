@@ -173,7 +173,7 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
     var showSaveNoteDialog by remember { mutableStateOf(false) }
     var savingNote by remember { mutableStateOf(false) }
     var noteSaved by remember { mutableStateOf(false) }
@@ -258,9 +258,10 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         ) {
             items(messages) { msg ->
                 val isUser = msg["role"] == "user"
+                val content = msg["content"] ?: ""
                 if (isUser) {
                     LumoChatBubble(
-                        message = msg["content"] ?: "",
+                        message = content,
                         isSent = true,
                     )
                 } else {
@@ -272,7 +273,7 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                         )
                     ) {
                         MarkdownRenderer(
-                            content = msg["content"] ?: "",
+                            content = content,
                             modifier = Modifier.padding(12.dp),
                             isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme(),
                         )
@@ -303,10 +304,10 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = inputText, onValueChange = { inputText = it },
-                modifier = Modifier.weight(1f), placeholder = { Text("输入消息...") }, maxLines = 3
+                modifier = Modifier.weight(1f), placeholder = { Text("输入消息...", fontSize = 13.sp) }, maxLines = 2, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             val sendIcon = if (loading) Icons.Filled.Stop else Icons.Filled.Send
@@ -333,10 +334,12 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                             messages = messages + mapOf("role" to "assistant", "content" to "")
                             val fullResponse = withContext(Dispatchers.IO) {
                                 repo.streamChat(text) { token ->
-                                    val current = messages[aiIndex]["content"] ?: ""
-                                    messages = messages.toMutableList().also {
-                                        it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
-                                            m["content"] = current + token
+                                    scope.launch(Dispatchers.Main) {
+                                        val current = messages[aiIndex]["content"] ?: ""
+                                        messages = messages.toMutableList().also {
+                                            it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
+                                                m["content"] = current + token
+                                            }
                                         }
                                     }
                                 }
@@ -454,3 +457,4 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         }
     }
 }
+
