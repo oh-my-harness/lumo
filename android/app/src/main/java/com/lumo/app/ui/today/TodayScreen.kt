@@ -204,6 +204,27 @@ fun TodayScreen() {
                         onStartPomodoro = { taskId, planId ->
                             pomodoroTaskId = taskId
                             pomodoroPlanId = planId
+                            pomodoroRunning = true
+                            pomodoroSeconds = pomodoroDuration * 60
+                            pomodoroStartedAt = java.time.Instant.now().toString()
+                            scope.launch {
+                                while (pomodoroRunning && pomodoroSeconds > 0) {
+                                    delay(1000)
+                                    if (pomodoroRunning) {
+                                        pomodoroSeconds--
+                                        if (pomodoroSeconds <= 0) {
+                                            pomodoroRunning = false
+                                            withContext(Dispatchers.IO) {
+                                                repo.recordPomodoro(
+                                                    taskId, planId,
+                                                    pomodoroDuration * 60, pomodoroStartedAt
+                                                )
+                                                totalStudy = repo.getTotalStudyTime()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         },
                         onCheckin = {
                             scope.launch {
@@ -635,8 +656,13 @@ private fun TaskCard(
             }
             if (!isCompleted) {
                 val planId = task["plan_id"] ?: ""
-                IconButton(onClick = { onStartPomodoro(taskId, planId) }) {
-                    Icon(Icons.Filled.Timer, contentDescription = "番茄钟")
+                OutlinedButton(
+                    onClick = { onStartPomodoro(taskId, planId) },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("开始", fontSize = 12.sp)
                 }
             }
         }
