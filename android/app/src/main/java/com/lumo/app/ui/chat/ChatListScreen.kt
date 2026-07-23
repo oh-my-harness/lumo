@@ -244,7 +244,7 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                         MarkdownRenderer(
                             content = msg["content"] ?: "",
                             modifier = Modifier.padding(12.dp),
-                            isDarkTheme = false,
+                            isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme(),
                         )
                     }
                 }

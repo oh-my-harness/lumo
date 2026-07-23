@@ -219,7 +219,7 @@ private fun NoteEditorScreen(
             MarkdownRenderer(
                 content = content,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                isDarkTheme = false,
+                isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme(),
             )
         } else {
             OutlinedTextField(
