@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         run: |
           mkdir -p senza-wheel
-          gh release download --repo oh-my-harness/Senza --latest \
+          gh release download --repo oh-my-harness/Senza v1.0.3 \
             --pattern 'senza_sdk-*-android_24_arm64_v8a.whl' \
             --pattern 'senza_sdk-*-android_24_x86_64.whl' \
             --dir senza-wheel --clobber
