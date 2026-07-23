@@ -152,7 +152,7 @@ private fun NoteEditorScreen(
 ) {
     var title by remember { mutableStateOf(note?.get("title") ?: "") }
     var content by remember { mutableStateOf(note?.get("content") ?: "") }
-    var previewMode by remember { mutableStateOf(false) }
+    var previewMode by remember { mutableStateOf(!(note?.get("content").isNullOrEmpty())) }
     var summarizing by remember { mutableStateOf(false) }
     var summaryResult by remember { mutableStateOf("") }
     val repo = LumoRepository.get()
