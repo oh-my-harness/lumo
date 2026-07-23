@@ -321,6 +321,12 @@ private fun PlansTab(
     onToggleStatus: (Map<String, String?>) -> Unit,
     onCreatePlan: () -> Unit,
 ) {
+    val repo = LumoRepository.get()
+    val scope = rememberCoroutineScope()
+    var expandedPlanId by remember { mutableStateOf<String?>(null) }
+    var planTasks by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+    var loadingTasks by remember { mutableStateOf(false) }
+
     if (plans.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -345,31 +351,132 @@ private fun PlansTab(
                 }
             }
             plans.forEach { plan ->
+                val planId = plan["id"] ?: return@forEach
+                val isActive = plan["status"] == "active"
+                val isExpanded = expandedPlanId == planId
+                val completedCount = planTasks.count { it["status"] == "completed" }
+                val totalCount = planTasks.size
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = if (isActive)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(plan["title"] ?: "", fontWeight = FontWeight.Medium)
-                            Text(
-                                plan["goal"] ?: "",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(plan["title"] ?: "", fontWeight = FontWeight.Medium)
+                                Text(
+                                    plan["goal"] ?: "",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                                if (totalCount > 0) {
+                                    Text(
+                                        "$completedCount / $totalCount 任务完成",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            AssistChip(
+                                onClick = { onToggleStatus(plan) },
+                                label = { Text(if (isActive) "进行中" else "暂停") }
                             )
+                            IconButton(onClick = {
+                                if (isExpanded) {
+                                    expandedPlanId = null
+                                } else {
+                                    expandedPlanId = planId
+                                    loadingTasks = true
+                                    scope.launch {
+                                        try {
+                                            planTasks = withContext(Dispatchers.IO) {
+                                                repo.getPlanTasks(planId)
+                                            }
+                                        } catch (e: Exception) {}
+                                        loadingTasks = false
+                                    }
+                                }
+                            }) {
+                                Icon(
+                                    if (isExpanded) Icons.Filled.ExpandLess
+                                    else Icons.Filled.ExpandMore,
+                                    contentDescription = if (isExpanded) "收起" else "展开"
+                                )
+                            }
                         }
-                        AssistChip(
-                            onClick = { onToggleStatus(plan) },
-                            label = { Text(plan["status"] ?: "") }
-                        )
+                        if (isExpanded) {
+                            if (totalCount > 0) {
+                                LinearProgressIndicator(
+                                    progress = { completedCount.toFloat() / totalCount },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                                )
+                            }
+                            if (loadingTasks) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                }
+                            } else {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    // Group tasks by week
+                                    val grouped = planTasks.groupBy { it["week_num"] ?: "1" }
+                                    grouped.toSortedMap().forEach { (weekNum, weekTasks) ->
+                                        Text(
+                                            "第 $weekNum 周",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                        )
+                                        weekTasks.forEach { task ->
+                                            val isCompleted = task["status"] == "completed"
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    if (isCompleted) Icons.Filled.CheckCircle
+                                                    else Icons.Filled.RadioButtonUnchecked,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isCompleted)
+                                                        MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    task["title"] ?: "",
+                                                    fontSize = 13.sp,
+                                                    textDecoration = if (isCompleted)
+                                                        TextDecoration.LineThrough else null,
+                                                    color = if (isCompleted)
+                                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                                    else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (planTasks.isEmpty()) {
+                                        Text(
+                                            "暂无任务",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
