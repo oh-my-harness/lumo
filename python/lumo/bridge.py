@@ -424,16 +424,66 @@ def grade_answer(question_id: str, user_answer: str) -> dict:
             is_correct=result["is_correct"],
             error_reason=result.get("explanation", ""),
         )
+        _update_mastery_after_answer(store, question, result["is_correct"])
         return result
     else:
         # Objective grading
         is_correct = user_answer.strip().upper() == correct_answer.strip().upper()
         error_reason = "" if is_correct else f"Correct answer: {correct_answer}"
         store.record_answer(question_id, user_answer, is_correct, error_reason)
+        _update_mastery_after_answer(store, question, is_correct)
         return {
             "is_correct": is_correct,
             "explanation": question.get("explanation", ""),
         }
+
+
+def _update_mastery_after_answer(store, question: dict, is_correct: bool) -> None:
+    """Update knowledge point mastery and record weak points in memory.
+
+    - Correct answer: +10 mastery (cap 100)
+    - Wrong answer: -15 mastery (floor 0), and record to memory as weak point
+    """
+    import json as _json
+    kp_json = question.get("knowledge_points", "[]")
+    try:
+        kps = _json.loads(kp_json) if isinstance(kp_json, str) else kp_json
+    except Exception:
+        kps = []
+    if not kps:
+        return
+
+    plan_id = question.get("plan_id", "")
+    if not plan_id:
+        return
+
+    for kp_name in kps:
+        if not isinstance(kp_name, str) or not kp_name.strip():
+            continue
+        existing = store.get_kp(plan_id, kp_name)
+        if existing:
+            current = existing.get("mastery_level", 0)
+            if is_correct:
+                new_level = min(100, current + 10)
+            else:
+                new_level = max(0, current - 15)
+            store.upsert_kp(plan_id, kp_name, new_level)
+        else:
+            store.upsert_kp(plan_id, kp_name, 0 if not is_correct else 10)
+
+    # Record weak points to global memory
+    if not is_correct:
+        try:
+            existing_weak = store.read_memory("global", "weak_points") or ""
+            weak_set = set(
+                w.strip() for w in existing_weak.split(",") if w.strip()
+            )
+            for kp_name in kps:
+                if isinstance(kp_name, str) and kp_name.strip():
+                    weak_set.add(kp_name.strip())
+            store.write_memory("global", "weak_points", ", ".join(sorted(weak_set)))
+        except Exception:
+            pass
 
 
 def get_quiz_questions(plan_id: str = "") -> list[dict]:

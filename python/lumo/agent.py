@@ -52,11 +52,27 @@ class ChatSession:
 
         after_turn = senza.create_after_turn_hook(persist_messages)
 
+        # Build system prompt with injected learner memory
+        system_prompt = SYSTEM_PROMPT
+        try:
+            mem = store.list_memory("global")
+            if mem:
+                mem_lines = "\n".join(
+                    f"- {m['key']}: {m['value']}" for m in mem
+                )
+                system_prompt += (
+                    "\n\n## 学习者画像（已从记忆加载）\n"
+                    f"{mem_lines}\n\n"
+                    "请基于以上信息个性化你的回答。"
+                )
+        except Exception:
+            pass
+
         # Build harness
         self._harness = (
             senza.HarnessBuilder(config.model)
             .provider("*", provider)
-            .system_prompt(SYSTEM_PROMPT)
+            .system_prompt(system_prompt)
             .max_tokens(2048)
             .auto_compact(True)
             .tool(tools[0])

@@ -153,6 +153,7 @@ QUIZ_WORKFLOW = {
             "prompt": (
                 "你是测验设计师。根据以下知识点生成 {num_questions} 道练习题。\n"
                 "知识点：{knowledge_points}\n\n"
+                "{user_context}"
                 "题型：单选、多选、判断、简答混合。用 JSON 格式输出：\n"
                 '```json\n{"questions": [{"type": "single_choice", "question": "...", '
                 '"options": ["A","B","C","D"], "answer": "A", "explanation": "...", '
@@ -218,10 +219,9 @@ def run_quiz_workflow(
         .with_task_store(session_dir)
         .with_max_retries(2)
     )
-
     engine.set_context_variable("knowledge_points", knowledge_points)
     engine.set_context_variable("num_questions", str(num_questions))
-
+    engine.set_context_variable("user_context", _build_user_context(store, plan_id, knowledge_points))
     engine.run()
 
     history = engine.step_history()
@@ -269,3 +269,49 @@ def _extract_json(text: str) -> dict:
         return json.loads(text[start:end].strip())
     # Try direct parse
     return json.loads(text.strip())
+
+
+def _build_user_context(store, plan_id: str, knowledge_points: str) -> str:
+    """Build user profile context string for quiz generation.
+    Reads learner memory, knowledge mastery, and recent errors."""
+    parts = []
+
+    # 1. Global learner memory
+    try:
+        mem = store.list_memory("global")
+        if mem:
+            mem_lines = [f"  - {m['key']}: {m['value']}" for m in mem]
+            parts.append("学习者画像：\n" + "\n".join(mem_lines) + "\n\n")
+    except Exception:
+        pass
+
+    # 2. Knowledge mastery for this plan
+    if plan_id:
+        try:
+            kps = store.list_kps(plan_id)
+            if kps:
+                kp_lines = [
+                    f"  - {kp['name']}: 掌握度 {kp['mastery_level']}%"
+                    for kp in kps
+                ]
+                parts.append("已学知识点掌握度：\n" + "\n".join(kp_lines) + "\n\n")
+        except Exception:
+            pass
+
+    # 3. Recent wrong answers (last 5)
+    try:
+        wrong = store.get_wrong_answers()[:5]
+        if wrong:
+            err_lines = [
+                f"  - 题: {w.get('question', '')[:60]}"
+                f" | 错答: {w.get('user_answer', '')[:30]}"
+                f" | 正确: {w.get('correct_answer', '')[:30]}"
+                for w in wrong
+            ]
+            parts.append("近期错题（请针对性出题）：\n" + "\n".join(err_lines) + "\n\n")
+    except Exception:
+        pass
+
+    if not parts:
+        return ""
+    return "## 用户画像（请根据以下信息调整题目难度和侧重点）\n" + "".join(parts)
