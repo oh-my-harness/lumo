@@ -85,12 +85,13 @@ private fun buildHtml(markdown: String, isDark: Boolean): String {
 <style>
   body {
     font-family: -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
-    font-size: 15px;
+    font-size: 13px;
     line-height: 1.6;
     color: $textColor;
     background: $bgColor;
     margin: 0;
     padding: 4px;
+    -webkit-text-size-adjust: 100%;
     word-wrap: break-word;
     overflow-x: hidden;
   }
