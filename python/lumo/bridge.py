@@ -249,6 +249,24 @@ def list_kps(plan_id: str) -> list[dict]:
 _chat_session = None
 
 
+
+def _maybe_update_title(text: str) -> None:
+    """Auto-set session title from the first user message if title is empty/default."""
+    if _chat_session is None:
+        return
+    store = _ensure_store()
+    session = store.get_session(_chat_session._session_id)
+    if session is None:
+        return
+    title = (session.get("title") or "").strip()
+    if title and title != "新对话":
+        return
+    # Use first ~20 chars of the user message as title
+    snippet = text.strip().replace("\n", " ")[:20]
+    if len(text.strip()) > 20:
+        snippet += "..."
+    store.update_session_title(_chat_session._session_id, snippet)
+
 def start_chat(session_id: str) -> None:
     """Start a chat session. Creates a ChatSession with the current provider config."""
     global _chat_session
@@ -266,13 +284,14 @@ def send_message(text: str) -> str:
     """Send a message and return the complete response."""
     if _chat_session is None:
         raise RuntimeError("Chat not started. Call start_chat first.")
+    _maybe_update_title(text)
     return _chat_session.send_message(text)
-
 
 def stream_chat(text: str, callback) -> str:
     """Stream a chat response. callback.onToken(text) is called for each token."""
     if _chat_session is None:
         raise RuntimeError("Chat not started. Call start_chat first.")
+    _maybe_update_title(text)
     return _chat_session.stream_message(text, on_token=callback.onToken)
 
 
