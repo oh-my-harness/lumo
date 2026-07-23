@@ -91,6 +91,27 @@ fun QuizScreen() {
         return
     }
 
+    var searchQuery by remember { mutableStateOf("") }
+    var filterType by remember { mutableStateOf<String?>(null) }
+
+    val typeLabels = remember {
+        mapOf(
+            "single_choice" to "单选",
+            "multi_choice" to "多选",
+            "true_false" to "判断",
+            "short_answer" to "简答",
+        )
+    }
+
+    val filteredQuestions = remember(questions, searchQuery, filterType) {
+        questions.filter { q ->
+            (filterType == null || q["question_type"] == filterType) &&
+            (searchQuery.isBlank() ||
+             (q["question"]?.contains(searchQuery, ignoreCase = true) == true) ||
+             (q["knowledge_points"]?.contains(searchQuery, ignoreCase = true) == true))
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -102,7 +123,7 @@ fun QuizScreen() {
                             currentIndex = 0
                             selectedAnswers = emptyMap()
                             gradeResults = emptyMap()
-                        }) { Icon(Icons.Filled.Quiz, contentDescription = "开始测验") }
+                        }) { Icon(Icons.Filled.PlayArrow, contentDescription = "开始测验") }
                     }
                     IconButton(onClick = { showGenDialog = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "生成测验")
@@ -123,80 +144,127 @@ fun QuizScreen() {
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
-                ) {
-                    items(questions) { question ->
-                        val qid = question["id"] ?: return@items
-                        val qType = question["question_type"] ?: "single_choice"
-                        val gradeResult = gradeResults[qid]
-                        val isCorrect = gradeResult?.let { g ->
-                            val c = g["is_correct"]
-                            c == true || c.toString() == "True"
+                // Search bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    placeholder = { Text("搜索题目或知识点...") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "清除")
+                            }
                         }
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val idx = questions.indexOfFirst { it["id"] == qid }
-                                    if (idx >= 0) {
-                                        currentIndex = idx
-                                        quizMode = true
-                                    }
-                                },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = when {
-                                    isCorrect == true -> MaterialTheme.colorScheme.primaryContainer
-                                    isCorrect == false -> MaterialTheme.colorScheme.errorContainer
-                                    else -> MaterialTheme.colorScheme.surface
-                                }
-                            )
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    SuggestionChip(
-                                        onClick = {},
-                                        label = { Text(qType, fontSize = 10.sp) }
-                                    )
-                                    if (isCorrect != null) {
-                                        Icon(
-                                            if (isCorrect == true) Icons.Filled.CheckCircle
-                                            else Icons.Filled.Cancel,
-                                            contentDescription = null,
-                                            tint = if (isCorrect == true)
-                                                MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    question["question"] ?: "",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 3
-                                )
-                                val kps = question["knowledge_points"]
-                                if (!kps.isNullOrEmpty()) {
-                                    val tags = try {
-                                        JSONArray(kps).let { arr ->
-                                            (0 until arr.length()).map { arr.getString(it) }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Type filter chips
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = filterType == null,
+                        onClick = { filterType = null },
+                        label = { Text("全部", fontSize = 11.sp) }
+                    )
+                    typeLabels.forEach { (type, label) ->
+                        FilterChip(
+                            selected = filterType == type,
+                            onClick = { filterType = if (filterType == type) null else type },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                if (filteredQuestions.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("没有匹配的题目",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+                    ) {
+                        items(filteredQuestions) { question ->
+                            val qid = question["id"] ?: return@items
+                            val qType = question["question_type"] ?: "single_choice"
+                            val qTypeLabel = typeLabels[qType] ?: qType
+                            val gradeResult = gradeResults[qid]
+                            val isCorrect = gradeResult?.let { g ->
+                                val c = g["is_correct"]
+                                c == true || c.toString() == "True"
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val idx = questions.indexOfFirst { it["id"] == qid }
+                                        if (idx >= 0) {
+                                            currentIndex = idx
+                                            quizMode = true
                                         }
-                                    } catch (e: Exception) { emptyList() }
-                                    if (tags.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            tags.joinToString(" · "),
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = when {
+                                        isCorrect == true -> MaterialTheme.colorScheme.primaryContainer
+                                        isCorrect == false -> MaterialTheme.colorScheme.errorContainer
+                                        else -> MaterialTheme.colorScheme.surface
+                                    }
+                                )
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        SuggestionChip(
+                                            onClick = {},
+                                            label = { Text(qTypeLabel, fontSize = 10.sp) }
                                         )
+                                        if (isCorrect != null) {
+                                            Icon(
+                                                if (isCorrect == true) Icons.Filled.CheckCircle
+                                                else Icons.Filled.Cancel,
+                                                contentDescription = null,
+                                                tint = if (isCorrect == true)
+                                                    MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        question["question"] ?: "",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 3
+                                    )
+                                    val kps = question["knowledge_points"]
+                                    if (!kps.isNullOrEmpty()) {
+                                        val tags = try {
+                                            JSONArray(kps).let { arr ->
+                                                (0 until arr.length()).map { arr.getString(it) }
+                                            }
+                                        } catch (e: Exception) { emptyList() }
+                                        if (tags.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                tags.joinToString(" · "),
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
