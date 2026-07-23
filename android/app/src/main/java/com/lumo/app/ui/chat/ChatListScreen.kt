@@ -121,8 +121,10 @@ fun ChatListScreen(navController: NavController) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             IconButton(onClick = {
-                                repo.deleteSession(session["id"]!!)
-                                sessions = repo.listSessions()
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { repo.deleteSession(session["id"]!!) }
+                                    sessions = withContext(Dispatchers.IO) { repo.listSessions() }
+                                }
                             }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "删除",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
