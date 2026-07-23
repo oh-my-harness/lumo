@@ -165,6 +165,14 @@ class LumoRepository private constructor(private val py: Python) {
     fun getTotalStudyTime(): Int = bridge().callAttr("get_total_study_time").toInt()
     fun getCheckinHeatmap(month: String): List<Map<String, String?>> =
         bridge().callAttr("get_checkin_heatmap", month).toStringMapList()
+    fun getStudyTrend(period: String = "week"): Map<String, Any?> {
+        val result = bridge().callAttr("get_study_trend", period)
+        return result.asMap().entries.associate { (k, v) ->
+            k.toString() to (v as? Any)
+        }
+    }
+    fun getKnowledgeMastery(planId: String): List<Map<String, String?>> =
+        bridge().callAttr("get_knowledge_mastery", planId).toStringMapList()
     fun checkinToday(taskIds: List<String>) {
         // Convert to JSON string — Chaquopy can't pass Kotlin List as Python list
         val json = org.json.JSONArray(taskIds).toString()

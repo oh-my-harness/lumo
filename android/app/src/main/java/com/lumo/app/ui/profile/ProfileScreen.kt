@@ -1,5 +1,6 @@
 package com.lumo.app.ui.profile
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -100,6 +101,77 @@ fun ProfileScreen() {
                             val totalTime = stats["total_study_time"] as? Int ?: 0
                             Text("连续打卡: $streak 天")
                             Text("总学习时长: ${totalTime / 60} 分钟")
+
+                            // 学习趋势（近 7 天）
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("近 7 天学习时长", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            var trend by remember { mutableStateOf<Map<String, Any?>?>(null) }
+                            LaunchedEffect(Unit) {
+                                try { trend = withContext(Dispatchers.IO) { repo.getStudyTrend("week") } } catch (e: Exception) {}
+                            }
+                            trend?.let { t ->
+                                @Suppress("UNCHECKED_CAST")
+                                val data = t["data"] as? Map<String, Any> ?: emptyMap()
+                                val maxVal = ((data.values.mapNotNull { it as? Int }.maxOrNull()) ?: 1).coerceAtLeast(1)
+                                data.entries.toList().takeLast(7).forEach { (date, seconds) ->
+                                    val mins = ((seconds as? Int) ?: 0) / 60
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(date.takeLast(5), fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        // 简易条形图
+                                        val barWidth = (mins.toFloat() / maxVal.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                        Box(modifier = Modifier
+                                            .width((barWidth * 120).toInt().dp.coerceAtLeast(2.dp))
+                                            .height(8.dp)
+                                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)))
+                                        Text("${mins}m", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            // 打卡热力图（当月）
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("本月打卡", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            var heatmap by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+                            LaunchedEffect(Unit) {
+                                try {
+                                    val month = java.time.LocalDate.now().toString().take(7)
+                                    heatmap = withContext(Dispatchers.IO) { repo.getCheckinHeatmap(month) }
+                                } catch (e: Exception) {}
+                            }
+                            Text("打卡 ${heatmap.size} 天", fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            // 知识点掌握度
+                            if (plans.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("知识点掌握度", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                var mastery by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+                                LaunchedEffect(plans) {
+                                    try {
+                                        mastery = withContext(Dispatchers.IO) {
+                                            repo.getKnowledgeMastery(plans.first()["id"]!!)
+                                        }
+                                    } catch (e: Exception) {}
+                                }
+                                mastery.forEach { kp ->
+                                    val level = kp["mastery_level"] ?: "0"
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(kp["name"] ?: "", fontSize = 12.sp)
+                                        LinearProgressIndicator(
+                                            progress = { (level.toFloatOrNull() ?: 0f) / 100f },
+                                            modifier = Modifier.width(100.dp)
+                                        )
+                                        Text("$level%", fontSize = 11.sp)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
