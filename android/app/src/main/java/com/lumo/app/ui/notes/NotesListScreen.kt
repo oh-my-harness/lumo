@@ -77,8 +77,12 @@ fun NotesListScreen() {
             onValueChange = { query ->
                 searchQuery = query
                 scope.launch {
-                    searchResults = if (query.isBlank()) emptyList()
-                    else withContext(Dispatchers.IO) { repo.searchNotes(query) }
+                    try {
+                        searchResults = if (query.isBlank()) emptyList()
+                        else withContext(Dispatchers.IO) { repo.searchNotes(query) }
+                    } catch (e: Exception) {
+                        searchResults = emptyList()
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
