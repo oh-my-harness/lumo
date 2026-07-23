@@ -3,7 +3,9 @@ package com.lumo.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -29,7 +31,7 @@ data class TabItem(val route: String, val title: String, val icon: androidx.comp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        LumoRepository.init(this)
+        enableEdgeToEdge()
         setContent {
             LumoTheme {
                 LumoApp()
@@ -97,7 +99,7 @@ fun LumoApp() {
         NavHost(
             navController = navController,
             startDestination = "today",
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(innerPadding).statusBarsPadding()
         ) {
             composable("today") { TodayScreen() }
             composable("chat") { ChatListScreen(navController) }
