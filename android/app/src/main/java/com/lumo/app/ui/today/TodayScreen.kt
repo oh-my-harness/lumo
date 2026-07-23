@@ -14,6 +14,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumo.app.data.LumoRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -48,6 +52,96 @@ fun TodayScreen() {
         }
         Spacer(modifier = Modifier.height(16.dp))
 
+        // 番茄钟
+        var pomodoroRunning by remember { mutableStateOf(false) }
+        var pomodoroSeconds by remember { mutableStateOf(25 * 60) }
+        var pomodoroDuration by remember { mutableStateOf(25) } // minutes
+        var pomodoroTaskId by remember { mutableStateOf<String?>(null) }
+        var pomodoroPlanId by remember { mutableStateOf<String?>(null) }
+        var pomodoroStartedAt by remember { mutableStateOf("") }
+        val scope = rememberCoroutineScope()
+
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                val mins = pomodoroSeconds / 60
+                val secs = pomodoroSeconds % 60
+                Text(
+                    String.format("%02d:%02d", mins, secs),
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(15 to "15+5", 25 to "25+5", 50 to "50+10").forEach { (mins, label) ->
+                        FilterChip(
+                            selected = pomodoroDuration == mins,
+                            onClick = {
+                                if (!pomodoroRunning) {
+                                    pomodoroDuration = mins
+                                    pomodoroSeconds = mins * 60
+                                }
+                            },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            if (pomodoroRunning) {
+                                // 停止
+                                pomodoroRunning = false
+                            } else {
+                                // 开始
+                                pomodoroRunning = true
+                                pomodoroStartedAt = java.time.Instant.now().toString()
+                                scope.launch {
+                                    while (pomodoroRunning && pomodoroSeconds > 0) {
+                                        delay(1000)
+                                        if (pomodoroRunning) {
+                                            pomodoroSeconds--
+                                            if (pomodoroSeconds <= 0) {
+                                                pomodoroRunning = false
+                                                // 记录番茄钟
+                                                val taskId = pomodoroTaskId
+                                                val planId = pomodoroPlanId
+                                                if (taskId != null && planId != null) {
+                                                    withContext(Dispatchers.IO) {
+                                                        repo.recordPomodoro(
+                                                            taskId, planId,
+                                                            pomodoroDuration * 60, pomodoroStartedAt
+                                                        )
+                                                    }
+                                                    totalStudy = repo.getTotalStudyTime()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            if (pomodoroRunning) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (pomodoroRunning) "暂停" else "开始")
+                    }
+                    if (pomodoroRunning) {
+                        OutlinedButton(onClick = {
+                            pomodoroRunning = false
+                            pomodoroSeconds = pomodoroDuration * 60
+                        }) { Text("重置") }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
         Text("今日任务", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -74,13 +168,40 @@ fun TodayScreen() {
                         )
                     }
                     items(planTasks) { task ->
-                        TaskCard(task) { taskId ->
-                            val newStatus = if (task["status"] == "completed") "pending" else "completed"
-                            repo.updateTaskStatus(taskId, newStatus)
-                            tasks = repo.getTodayTasks()
-                        }
+                        TaskCard(
+                            task = task,
+                            onComplete = { taskId ->
+                                val newStatus = if (task["status"] == "completed") "pending" else "completed"
+                                repo.updateTaskStatus(taskId, newStatus)
+                                tasks = repo.getTodayTasks()
+                            },
+                            onStartPomodoro = { taskId, planId ->
+                                pomodoroTaskId = taskId
+                                pomodoroPlanId = planId
+                            }
+                        )
                     }
                 }
+            }
+        }
+        if (tasks.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            val completedTaskIds = tasks.filter { it["status"] == "completed" }.mapNotNull { it["id"] }
+            Button(
+                onClick = {
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { repo.checkinToday(completedTaskIds) }
+                            streak = repo.getStreak()
+                        } catch (e: Exception) {}
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = completedTaskIds.isNotEmpty()
+            ) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("今日打卡")
             }
         }
     }
@@ -103,7 +224,11 @@ private fun StatCard(label: String, value: String, icon: androidx.compose.ui.gra
 }
 
 @Composable
-private fun TaskCard(task: Map<String, String?>, onComplete: (String) -> Unit) {
+private fun TaskCard(
+    task: Map<String, String?>,
+    onComplete: (String) -> Unit,
+    onStartPomodoro: (String, String) -> Unit = { _, _ -> }
+) {
     val taskId = task["id"] ?: return
     val isCompleted = task["status"] == "completed"
     Card(
@@ -135,6 +260,13 @@ private fun TaskCard(task: Map<String, String?>, onComplete: (String) -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2
                     )
+                }
+            }
+            // 番茄钟按钮
+            if (!isCompleted) {
+                val planId = task["plan_id"] ?: ""
+                IconButton(onClick = { onStartPomodoro(taskId, planId) }) {
+                    Icon(Icons.Filled.Timer, contentDescription = "番茄钟")
                 }
             }
         }
