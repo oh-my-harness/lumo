@@ -19,6 +19,8 @@ import androidx.navigation.NavController
 import com.lumo.app.data.LumoRepository
 import com.lumo.app.ui.markdown.MarkdownRenderer
 import com.lumo.app.ui.quiz.QuizCardOverlay
+import com.lumo.app.ui.components.LumoChatBubble
+import com.lumo.app.ui.components.LumoTypingIndicator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -259,21 +261,19 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         ) {
             items(messages) { msg ->
                 val isUser = msg["role"] == "user"
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isUser) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant
+                if (isUser) {
+                    LumoChatBubble(
+                        message = msg["content"] ?: "",
+                        isSent = true,
                     )
-                ) {
-                    if (isUser) {
-                        Text(
-                            msg["content"] ?: "",
-                            modifier = Modifier.padding(12.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
-                    } else {
+                    ) {
                         MarkdownRenderer(
                             content = msg["content"] ?: "",
                             modifier = Modifier.padding(12.dp),
@@ -284,8 +284,8 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
             }
             if (loading) {
                 item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        LumoTypingIndicator()
                     }
                 }
             }

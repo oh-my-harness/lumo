@@ -16,6 +16,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumo.app.data.LumoRepository
+import com.lumo.app.ui.components.LumoStatsCard
+import com.lumo.app.ui.components.LumoSegmentedControl
+import com.lumo.app.ui.components.LumoEmptyState
 import com.lumo.app.ui.profile.CreatePlanScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -63,10 +66,22 @@ fun TodayScreen() {
         // Header: streak + study time
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StatCard("连续打卡", "$streak 天", Icons.Filled.LocalFireDepartment)
-            StatCard("学习时长", "${totalStudy / 60} 分钟", Icons.Filled.Schedule)
+            LumoStatsCard(
+                label = "连续打卡",
+                value = "$streak 天",
+                icon = Icons.Filled.LocalFireDepartment,
+                accentColor = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.weight(1f),
+            )
+            LumoStatsCard(
+                label = "学习时长",
+                value = "${totalStudy / 60} 分钟",
+                icon = Icons.Filled.Schedule,
+                accentColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
         }
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -147,20 +162,14 @@ fun TodayScreen() {
                 }
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Tab row: 今日任务 / 学习计划 / 学习统计
-        TabRow(selectedTabIndex = selectedTab) {
-            val tabs = listOf("今日任务", "学习计划", "学习统计")
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = { Text(title, fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal) }
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
+        // Tab switcher: 今日任务 / 学习计划 / 学习统计
+        LumoSegmentedControl(
+            options = listOf("今日任务", "学习计划", "学习统计"),
+            selectedIndex = selectedTab,
+            onSelectionChange = { selectedTab = it },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Tab content inside a card
         Card(
@@ -245,9 +254,11 @@ private fun TodayTasksTab(
             CircularProgressIndicator()
         }
     } else if (tasks.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("暂无任务\n去「学习计划」创建一个吧", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        LumoEmptyState(
+            title = "暂无任务",
+            message = "去「学习计划」创建一个吧",
+            icon = Icons.Filled.Assignment,
+        )
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val grouped = tasks.groupBy { it["plan_title"] ?: "未分组" }
