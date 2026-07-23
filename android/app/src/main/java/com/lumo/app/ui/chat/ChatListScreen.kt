@@ -162,14 +162,62 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        var showSaveNoteDialog by remember { mutableStateOf(false) }
+        var saveNoteResult by remember { mutableStateOf("") }
         TopAppBar(
             title = { Text("对话") },
             navigationIcon = {
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                 }
+            },
+            actions = {
+                IconButton(onClick = { showSaveNoteDialog = true }) {
+                    Icon(Icons.Filled.Save, contentDescription = "保存为笔记")
+                }
             }
         )
+
+        if (showSaveNoteDialog) {
+            var noteTitle by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showSaveNoteDialog = false },
+                title = { Text("保存为笔记") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = noteTitle,
+                            onValueChange = { noteTitle = it },
+                            label = { Text("笔记标题（可选）") },
+                            singleLine = true
+                        )
+                        if (saveNoteResult.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(saveNoteResult, fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    repo.saveConversationAsNote(sessionId, noteTitle)
+                                }
+                                saveNoteResult = "已保存"
+                                showSaveNoteDialog = false
+                            } catch (e: Exception) {
+                                saveNoteResult = "错误: ${e.message}"
+                            }
+                        }
+                    }) { Text("保存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSaveNoteDialog = false }) { Text("取消") }
+                }
+            )
+        }
 
         LazyColumn(
             state = listState,

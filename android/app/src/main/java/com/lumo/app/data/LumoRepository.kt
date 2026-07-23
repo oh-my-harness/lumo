@@ -91,6 +91,9 @@ class LumoRepository private constructor(private val py: Python) {
     fun getChatHistory(): List<Map<String, String?>> =
         bridge().callAttr("get_chat_history").toStringMapList()
     fun abortChat() = bridge().callAttr("abort_chat")
+    fun saveConversationAsNote(sessionId: String, title: String = ""): String {
+        return bridge().callAttr("save_conversation_as_note", sessionId, title).toString()
+    }
 
     // ── Plans ──
     fun listPlans(): List<Map<String, String?>> =
