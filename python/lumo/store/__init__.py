@@ -33,15 +33,19 @@ class Store:
 
     def __init__(self, db_path: str):
         self.db_path = str(db_path)
-        self._db_conn, self._has_fts5 = init_db(self.db_path)
+        # init_db creates tables + runs migrations; the returned connection
+        # is only used during initialization. All runtime queries create
+        # fresh per-call connections (thread-safe, like the original Store).
+        init_conn, self._has_fts5 = init_db(self.db_path)
+        init_conn.close()
 
-        # Sub-stores share the same connection
-        self._sessions = SessionStore(self._db_conn, self._has_fts5)
-        self._plans = PlanStore(self._db_conn, self._has_fts5)
-        self._notes = NoteStore(self._db_conn, self._has_fts5)
-        self._quiz = QuizStore(self._db_conn, self._has_fts5)
-        self._stats = StatsStore(self._db_conn, self._has_fts5)
-        self._memory = MemoryStore(self._db_conn, self._has_fts5)
+        # Sub-stores receive db_path and create per-call connections.
+        self._sessions = SessionStore(self.db_path, self._has_fts5)
+        self._plans = PlanStore(self.db_path, self._has_fts5)
+        self._notes = NoteStore(self.db_path, self._has_fts5)
+        self._quiz = QuizStore(self.db_path, self._has_fts5)
+        self._stats = StatsStore(self.db_path, self._has_fts5)
+        self._memory = MemoryStore(self.db_path, self._has_fts5)
 
     @property
     def has_fts5(self) -> bool:
@@ -49,8 +53,8 @@ class Store:
 
     def list_tables(self) -> list[str]:
         """Return list of all table names in the database."""
-        with self._db_conn:
-            rows = self._db_conn.execute(
+        with self._conn() as conn:
+            rows = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
             ).fetchall()
             return [r["name"] for r in rows]

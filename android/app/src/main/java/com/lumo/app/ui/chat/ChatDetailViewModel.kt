@@ -74,7 +74,10 @@ class ChatDetailViewModel(
                 _uiState.update { it.copy(chatStarted = true) }
                 onStarted()
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message ?: "无法开始对话") }
+                // Surface the error as an assistant message so the user sees it
+                // (matches pre-refactor behavior).
+                val errMsg = MessageDto(id = "a-err-${nextLocalId()}", session_id = "", role = "assistant", content = "错误: ${e.message}")
+                _uiState.update { it.copy(messages = it.messages + errMsg, error = e.message ?: "无法开始对话") }
             }
         }
     }

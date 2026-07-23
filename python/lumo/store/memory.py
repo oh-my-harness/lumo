@@ -9,21 +9,28 @@ import sqlite3
 class MemoryStore:
     """Manages memory and settings tables."""
 
-    def __init__(self, conn: sqlite3.Connection, has_fts5: bool = True):
-        self._conn = conn
+    def __init__(self, db_path: str, has_fts5: bool = True):
+        self._db_path = db_path
         self._has_fts5 = has_fts5
 
+    def _new_conn(self) -> sqlite3.Connection:
+        """Create a new connection with proper settings."""
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
     def read_memory(self, scope: str, key: str) -> str | None:
-        with self._conn:
-            row = self._conn.execute(
+        with self._new_conn() as conn:
+            row = conn.execute(
                 "SELECT value FROM memory WHERE scope = ? AND key = ?",
                 (scope, key),
             ).fetchone()
             return row["value"] if row else None
 
     def write_memory(self, scope: str, key: str, value: str) -> None:
-        with self._conn:
-            self._conn.execute(
+        with self._new_conn() as conn:
+            conn.execute(
                 """INSERT INTO memory (id, scope, key, value) VALUES (?, ?, ?, ?)
                    ON CONFLICT(scope, key) DO UPDATE SET value=excluded.value,
                    updated_at=strftime('%Y-%m-%dT%H:%M:%SZ', 'now')""",
@@ -31,8 +38,8 @@ class MemoryStore:
             )
 
     def list_memory(self, scope: str) -> list[dict]:
-        with self._conn:
-            rows = self._conn.execute(
+        with self._new_conn() as conn:
+            rows = conn.execute(
                 "SELECT key, value, updated_at FROM memory WHERE scope = ? ORDER BY key",
                 (scope,),
             ).fetchall()
@@ -41,15 +48,15 @@ class MemoryStore:
     # ── Settings CRUD ──
 
     def get_setting(self, key: str) -> str | None:
-        with self._conn:
-            row = self._conn.execute(
+        with self._new_conn() as conn:
+            row = conn.execute(
                 "SELECT value FROM settings WHERE key = ?", (key,)
             ).fetchone()
             return row["value"] if row else None
 
     def set_setting(self, key: str, value: str) -> None:
-        with self._conn:
-            self._conn.execute(
+        with self._new_conn() as conn:
+            conn.execute(
                 """INSERT INTO settings (key, value) VALUES (?, ?)
                    ON CONFLICT(key) DO UPDATE SET value=excluded.value,
                    updated_at=strftime('%Y-%m-%dT%H:%M:%SZ', 'now')""",
@@ -57,6 +64,6 @@ class MemoryStore:
             )
 
     def get_all_settings(self) -> dict[str, str]:
-        with self._conn:
-            rows = self._conn.execute("SELECT key, value FROM settings").fetchall()
+        with self._new_conn() as conn:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
             return {r["key"]: r["value"] for r in rows}

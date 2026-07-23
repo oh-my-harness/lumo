@@ -9,9 +9,16 @@ import sqlite3
 class QuizStore:
     """Manages quiz_questions and quiz_answers tables."""
 
-    def __init__(self, conn: sqlite3.Connection, has_fts5: bool = True):
-        self._conn = conn
+    def __init__(self, db_path: str, has_fts5: bool = True):
+        self._db_path = db_path
         self._has_fts5 = has_fts5
+
+    def _new_conn(self) -> sqlite3.Connection:
+        """Create a new connection with proper settings."""
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
 
     def create_question(
         self, question_type: str, question: str, options: str,
@@ -19,8 +26,8 @@ class QuizStore:
         plan_id: str = "", task_id: str = "",
     ) -> str:
         qid = str(uuid.uuid4())
-        with self._conn:
-            self._conn.execute(
+        with self._new_conn() as conn:
+            conn.execute(
                 """INSERT INTO quiz_questions
                    (id, plan_id, task_id, question_type, question, options, answer, explanation, knowledge_points)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -30,21 +37,21 @@ class QuizStore:
         return qid
 
     def get_question(self, question_id: str) -> dict | None:
-        with self._conn:
-            row = self._conn.execute(
+        with self._new_conn() as conn:
+            row = conn.execute(
                 "SELECT * FROM quiz_questions WHERE id = ?", (question_id,)
             ).fetchone()
             return dict(row) if row else None
 
     def list_questions(self, plan_id: str | None = None) -> list[dict]:
-        with self._conn:
+        with self._new_conn() as conn:
             if plan_id:
-                rows = self._conn.execute(
+                rows = conn.execute(
                     "SELECT * FROM quiz_questions WHERE plan_id = ? ORDER BY created_at DESC",
                     (plan_id,),
                 ).fetchall()
             else:
-                rows = self._conn.execute(
+                rows = conn.execute(
                     "SELECT * FROM quiz_questions ORDER BY created_at DESC"
                 ).fetchall()
             return [dict(r) for r in rows]
@@ -54,8 +61,8 @@ class QuizStore:
         error_reason: str = "",
     ) -> str:
         aid = str(uuid.uuid4())
-        with self._conn:
-            self._conn.execute(
+        with self._new_conn() as conn:
+            conn.execute(
                 """INSERT INTO quiz_answers (id, question_id, user_answer, is_correct, error_reason)
                    VALUES (?, ?, ?, ?, ?)""",
                 (aid, question_id, user_answer, 1 if is_correct else 0, error_reason),
@@ -63,8 +70,8 @@ class QuizStore:
         return aid
 
     def list_answers(self, question_id: str) -> list[dict]:
-        with self._conn:
-            rows = self._conn.execute(
+        with self._new_conn() as conn:
+            rows = conn.execute(
                 "SELECT * FROM quiz_answers WHERE question_id = ? ORDER BY created_at",
                 (question_id,),
             ).fetchall()
@@ -72,8 +79,8 @@ class QuizStore:
 
     def get_wrong_answers(self) -> list[dict]:
         """Get all wrong answers joined with question details."""
-        with self._conn:
-            rows = self._conn.execute(
+        with self._new_conn() as conn:
+            rows = conn.execute(
                 """SELECT a.*, q.question, q.question_type, q.options,
                           q.answer as correct_answer, q.explanation, q.knowledge_points
                    FROM quiz_answers a

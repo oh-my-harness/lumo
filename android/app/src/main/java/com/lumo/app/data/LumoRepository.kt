@@ -27,6 +27,18 @@ class LumoRepository private constructor(private val bridge: PythonBridge) {
                     val repo = LumoRepository(PythonBridge(Python.getInstance()))
                     val dataDir = context.filesDir.absolutePath
                     repo.bridge.callUnit("init", dataDir)
+                    // Auto-seed provider config from BuildConfig if none exists.
+                    // This lets dev builds work without manual onboarding.
+                    if (repo.getProviderConfig() == null) {
+                        val key = com.lumo.app.BuildConfig.OPENAI_API_KEY
+                        if (key.isNotEmpty() && key != "sk-placeholder") {
+                            repo.saveProviderConfig(
+                                "openai", key,
+                                com.lumo.app.BuildConfig.OPENAI_API_BASE,
+                                com.lumo.app.BuildConfig.OPENAI_MODEL,
+                            )
+                        }
+                    }
                     instance = repo
                 }
             }
