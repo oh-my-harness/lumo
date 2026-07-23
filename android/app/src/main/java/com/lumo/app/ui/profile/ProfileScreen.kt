@@ -24,19 +24,14 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ProfileScreen() {
     val repo = LumoRepository.get()
-    var plans by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var stats by remember { mutableStateOf<Map<String, Any?>>(emptyMap()) }
     var config by remember { mutableStateOf<Map<String, String>?>(null) }
     var loading by remember { mutableStateOf(true) }
     var showConfig by remember { mutableStateOf(false) }
-    var showCreatePlan by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         loading = true
         try {
-            plans = repo.listPlans()
-            stats = repo.getStats()
             config = repo.getProviderConfig()
         } catch (e: Exception) {}
         loading = false
@@ -57,27 +52,11 @@ fun ProfileScreen() {
             onTest = { type, key, url, model ->
                 scope.launch {
                     try {
-                        val result = withContext(Dispatchers.IO) { repo.testConnection(type, key, url, model) }
-                        // Show result as snackbar or alert
+                        withContext(Dispatchers.IO) { repo.testConnection(type, key, url, model) }
                     } catch (e: Exception) {}
                 }
             },
             onBack = { showConfig = false }
-        )
-        return
-    }
-
-    if (showCreatePlan) {
-        CreatePlanScreen(
-            onSave = { title, goal, minutes, start, end ->
-                scope.launch {
-                    try {
-                        plans = repo.listPlans()
-                    } catch (e: Exception) {}
-                    showCreatePlan = false
-                }
-            },
-            onBack = { showCreatePlan = false }
         )
         return
     }
@@ -91,163 +70,27 @@ fun ProfileScreen() {
                 CircularProgressIndicator()
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Stats section
-                item {
-                    SectionHeader("学习统计")
-                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            val streak = stats["streak"]
-                            val totalTime = stats["total_study_time"] as? Int ?: 0
-                            Text("连续打卡: $streak 天")
-                            Text("总学习时长: ${totalTime / 60} 分钟")
-
-                            // 学习趋势（近 7 天）
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("近 7 天学习时长", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            var trend by remember { mutableStateOf<Map<String, Any?>?>(null) }
-                            LaunchedEffect(Unit) {
-                                try { trend = withContext(Dispatchers.IO) { repo.getStudyTrend("week") } } catch (e: Exception) {}
-                            }
-                            trend?.let { t ->
-                                @Suppress("UNCHECKED_CAST")
-                                val data = t["data"] as? Map<String, Any> ?: emptyMap()
-                                val maxVal = ((data.values.mapNotNull { it as? Int }.maxOrNull()) ?: 1).coerceAtLeast(1)
-                                data.entries.toList().takeLast(7).forEach { (date, seconds) ->
-                                    val mins = ((seconds as? Int) ?: 0) / 60
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(date.takeLast(5), fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        // 简易条形图
-                                        val barWidth = (mins.toFloat() / maxVal.coerceAtLeast(1)).coerceIn(0f, 1f)
-                                        Box(modifier = Modifier
-                                            .width((barWidth * 120).toInt().dp.coerceAtLeast(2.dp))
-                                            .height(8.dp)
-                                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)))
-                                        Text("${mins}m", fontSize = 11.sp)
-                                    }
-                                }
-                            }
-
-                            // 打卡热力图（当月）
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("本月打卡", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            var heatmap by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-                            LaunchedEffect(Unit) {
-                                try {
-                                    val month = java.time.LocalDate.now().toString().take(7)
-                                    heatmap = withContext(Dispatchers.IO) { repo.getCheckinHeatmap(month) }
-                                } catch (e: Exception) {}
-                            }
-                            Text("打卡 ${heatmap.size} 天", fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                            // 知识点掌握度
-                            if (plans.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("知识点掌握度", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                var mastery by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-                                LaunchedEffect(plans) {
-                                    try {
-                                        mastery = withContext(Dispatchers.IO) {
-                                            repo.getKnowledgeMastery(plans.first()["id"]!!)
-                                        }
-                                    } catch (e: Exception) {}
-                                }
-                                mastery.forEach { kp ->
-                                    val level = kp["mastery_level"] ?: "0"
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(kp["name"] ?: "", fontSize = 12.sp)
-                                        LinearProgressIndicator(
-                                            progress = { (level.toFloatOrNull() ?: 0f) / 100f },
-                                            modifier = Modifier.width(100.dp)
-                                        )
-                                        Text("$level%", fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Plans section
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SectionHeader("学习计划")
-                        TextButton(onClick = { showCreatePlan = true }) {
-                            Icon(Icons.Filled.Add, contentDescription = null)
-                            Text("新建")
-                        }
-                    }
-                }
-
-                items(plans) { plan ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(plan["title"] ?: "", fontWeight = FontWeight.Medium)
-                                Text(
-                                    plan["goal"] ?: "",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                            }
-                            AssistChip(
-                                onClick = {
-                                    val newStatus = if (plan["status"] == "active") "paused" else "active"
-                                    repo.updatePlanStatus(plan["id"]!!, newStatus)
-                                    plans = repo.listPlans()
-                                },
-                                label = { Text(plan["status"] ?: "") }
+            SectionHeader("模型配置")
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { showConfig = true },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(if (config != null) "已配置" else "未配置", fontWeight = FontWeight.Medium)
+                        if (config != null) {
+                            Text(
+                                "${config!!["provider_type"]} / ${config!!["model"]}",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                }
-
-                // Model config
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    SectionHeader("模型配置")
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { showConfig = true },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(if (config != null) "已配置" else "未配置", fontWeight = FontWeight.Medium)
-                                if (config != null) {
-                                    Text(
-                                        "${config!!["provider_type"]} / ${config!!["model"]}",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            Icon(Icons.Filled.ChevronRight, contentDescription = null)
-                        }
-                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null)
                 }
             }
         }
@@ -421,7 +264,7 @@ private fun ModelConfigScreen(
 }
 
 @Composable
-private fun CreatePlanScreen(
+fun CreatePlanScreen(
     onSave: (String, String, Int, String, String) -> Unit,
     onBack: () -> Unit
 ) {

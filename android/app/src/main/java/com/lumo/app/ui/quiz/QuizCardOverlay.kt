@@ -2,8 +2,6 @@ package com.lumo.app.ui.quiz
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -13,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumo.app.data.LumoRepository
@@ -21,166 +20,177 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
+/**
+ * Full-screen quiz card overlay for in-chat quiz mode.
+ *
+ * Flow: chat triggers quiz generation → this overlay shows one question at a time
+ * as a flashcard → after all questions answered, asks whether to save to 题库.
+ *
+ * @param questions List of question maps (from generate_quiz bridge call)
+ * @param onExit Called when user finishes or exits
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuizScreen() {
+fun QuizCardOverlay(
+    questions: List<Map<String, String?>>,
+    onExit: () -> Unit,
+) {
     val repo = LumoRepository.get()
-    var questions by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
-
-    // Card navigation state
     var currentIndex by remember { mutableStateOf(0) }
-    // Per-question state: questionId -> (selectedAnswer, gradeResult)
     var selectedAnswers by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var gradeResults by remember { mutableStateOf<Map<String, Map<String, Any?>?>>(emptyMap()) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
 
-    // AI generation dialog
-    var showGenDialog by remember { mutableStateOf(false) }
-    var genTopic by remember { mutableStateOf("") }
-    var genCount by remember { mutableStateOf("3") }
-    var generating by remember { mutableStateOf(false) }
-    var genResult by remember { mutableStateOf("") }
+    val total = questions.size
+    val completedCount = gradeResults.size
+    val allDone = completedCount == total
 
-    fun refresh() {
-        scope.launch {
-            loading = true
-            try {
-                questions = withContext(Dispatchers.IO) { repo.getQuizQuestions() }
-                if (currentIndex >= questions.size) currentIndex = 0
-            } catch (e: Exception) {}
-            loading = false
+    if (questions.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("没有题目")
         }
+        return
     }
-
-    LaunchedEffect(Unit) { refresh() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("题库") },
-                actions = {
-                    IconButton(onClick = { showGenDialog = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "生成测验")
+                title = { Text("做题 ($completedCount/$total)") },
+                navigationIcon = {
+                    IconButton(onClick = onExit) {
+                        Icon(Icons.Filled.Close, contentDescription = "退出")
                     }
                 }
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (loading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else if (questions.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无题目\n点击 + 生成测验",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
-            } else {
-                QuizCardView(
-                    questions = questions,
-                    currentIndex = currentIndex,
-                    onIndexChange = { currentIndex = it },
-                    selectedAnswers = selectedAnswers,
-                    gradeResults = gradeResults,
-                    onAnswerSelected = { qid, answer ->
-                        selectedAnswers = selectedAnswers + (qid to answer)
-                    },
-                    onSubmit = { qid, answer ->
-                        scope.launch {
-                            try {
-                                val result = withContext(Dispatchers.IO) {
-                                    repo.gradeAnswer(qid, answer)
-                                }
-                                gradeResults = gradeResults + (qid to result)
-                            } catch (e: Exception) {}
-                        }
-                    },
-                    onReset = { qid ->
-                        selectedAnswers = selectedAnswers - qid
-                        gradeResults = gradeResults - qid
-                    }
-                )
+        if (allDone) {
+            // Summary view
+            val correctCount = gradeResults.values.count { g ->
+                val c = g?.get("is_correct")
+                c == true || c.toString() == "True"
             }
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    if (correctCount == total) Icons.Filled.EmojiEvents
+                    else Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "$correctCount / $total",
+                    fontSize = 48.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text("正确", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(32.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            currentIndex = 0
+                            selectedAnswers = emptyMap()
+                            gradeResults = emptyMap()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("重新做") }
+                    Button(
+                        onClick = { showSaveDialog = true },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("保存到题库") }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(onClick = onExit) { Text("不保存，返回对话") }
+            }
+        } else {
+            QuizCardContent(
+                questions = questions,
+                currentIndex = currentIndex,
+                onIndexChange = { currentIndex = it },
+                selectedAnswers = selectedAnswers,
+                gradeResults = gradeResults,
+                onAnswerSelected = { qid, answer ->
+                    selectedAnswers = selectedAnswers + (qid to answer)
+                },
+                onSubmit = { qid, answer ->
+                    scope.launch {
+                        try {
+                            val result = withContext(Dispatchers.IO) {
+                                repo.gradeAnswer(qid, answer)
+                            }
+                            gradeResults = gradeResults + (qid to result)
+                            // Auto-advance after a short delay
+                            if (currentIndex < total - 1) {
+                                kotlinx.coroutines.delay(1500)
+                                currentIndex++
+                            }
+                        } catch (e: Exception) {}
+                    }
+                },
+                onReset = { qid ->
+                    selectedAnswers = selectedAnswers - qid
+                    gradeResults = gradeResults - qid
+                },
+                modifier = Modifier.padding(padding)
+            )
         }
     }
 
-    // Generation dialog
-    if (showGenDialog) {
+    // Save to quiz bank dialog
+    if (showSaveDialog) {
         AlertDialog(
-            onDismissRequest = { if (!generating) showGenDialog = false },
-            title = { Text("生成测验") },
+            onDismissRequest = { if (!saving) showSaveDialog = false },
+            title = { Text("保存到题库") },
             text = {
-                Column {
-                    OutlinedTextField(
-                        value = genTopic,
-                        onValueChange = { genTopic = it },
-                        label = { Text("知识点 / 主题") },
-                        placeholder = { Text("如：Python 闭包") },
-                        singleLine = true,
-                        enabled = !generating
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = genCount,
-                        onValueChange = { genCount = it.filter { c -> c.isDigit() } },
-                        label = { Text("题目数量") },
-                        singleLine = true,
-                        enabled = !generating
-                    )
-                    if (genResult.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(genResult, fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (saving) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("正在保存...")
                     }
+                } else {
+                    Text("将 $total 道题（含答题记录）保存到题库？\n\n错题会自动收录到错题本。")
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (genTopic.isNotBlank() && !generating) {
-                            scope.launch {
-                                generating = true
-                                genResult = "正在生成..."
-                                try {
-                                    val count = genCount.toIntOrNull() ?: 3
-                                    withContext(Dispatchers.IO) {
-                                        repo.generateQuiz(genTopic, count)
-                                    }
-                                    genResult = "已生成 $count 道题"
-                                    showGenDialog = false
-                                    genTopic = ""
-                                    currentIndex = 0
-                                    selectedAnswers = emptyMap()
-                                    gradeResults = emptyMap()
-                                    refresh()
-                                } catch (e: Exception) {
-                                    genResult = "错误: ${e.message}"
-                                }
-                                generating = false
-                            }
+                        if (saving) return@TextButton
+                        scope.launch {
+                            saving = true
+                            // gradeAnswer already persisted answers during grading.
+                            // Questions are already persisted by generate_quiz.
+                            // Nothing extra to save — just dismiss.
+                            saving = false
+                            showSaveDialog = false
+                            onExit()
                         }
                     },
-                    enabled = !generating && genTopic.isNotBlank()
-                ) {
-                    if (generating) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    else Text("生成")
-                }
+                    enabled = !saving
+                ) { Text("保存") }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { if (!generating) showGenDialog = false },
-                    enabled = !generating
-                ) { Text("取消") }
+                    onClick = { if (!saving) { showSaveDialog = false; onExit() } },
+                    enabled = !saving
+                ) { Text("不保存") }
             }
         )
     }
 }
 
 @Composable
-private fun QuizCardView(
+private fun QuizCardContent(
     questions: List<Map<String, String?>>,
     currentIndex: Int,
     onIndexChange: (Int) -> Unit,
@@ -189,6 +199,7 @@ private fun QuizCardView(
     onAnswerSelected: (String, String) -> Unit,
     onSubmit: (String, String) -> Unit,
     onReset: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val question = questions[currentIndex]
     val qid = question["id"] ?: return
@@ -198,10 +209,9 @@ private fun QuizCardView(
     val gradeResult = gradeResults[qid]
     val answered = gradeResult != null
     val total = questions.size
-    val completedCount = gradeResults.size
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Progress bar + dots
+    Column(modifier = modifier.fillMaxSize()) {
+        // Progress dots
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -211,7 +221,6 @@ private fun QuizCardView(
                 enabled = currentIndex > 0
             ) { Icon(Icons.Filled.ChevronLeft, contentDescription = "上一题") }
 
-            // Question dots
             Row(
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.Center
@@ -271,25 +280,11 @@ private fun QuizCardView(
                 .weight(1f)
                 .padding(16.dp)
         ) {
-            // Tags
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                val kps = question["knowledge_points"]
-                if (!kps.isNullOrEmpty()) {
-                    val tags = try {
-                        JSONArray(kps).let { arr -> (0 until arr.length()).map { arr.getString(it) } }
-                    } catch (e: Exception) { emptyList() }
-                    tags.take(3).forEach { tag ->
-                        SuggestionChip(onClick = {}, label = { Text(tag, fontSize = 10.sp) })
-                    }
-                }
-                SuggestionChip(
-                    onClick = {},
-                    label = { Text(qType, fontSize = 10.sp) }
-                )
-            }
+            // Type tag
+            SuggestionChip(
+                onClick = {},
+                label = { Text(qType, fontSize = 10.sp) }
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -324,7 +319,6 @@ private fun QuizCardView(
                     }
                 }
             } else {
-                // single_choice / multi_choice
                 options.forEachIndexed { idx, opt ->
                     val isSelected = selected == idx.toString()
                     val isCorrectAnswer = question["answer"]?.let { answer ->
@@ -334,9 +328,7 @@ private fun QuizCardView(
                     } ?: false
 
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                         shape = RoundedCornerShape(10.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = when {
@@ -404,21 +396,15 @@ private fun QuizCardView(
                         result["explanation"]?.let { exp ->
                             if (exp.toString().isNotBlank()) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    exp.toString(),
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Text(exp.toString(), fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         if (!isCorrect && qType != "short_answer") {
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                "正确答案: ${question["answer"] ?: ""}",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Text("正确答案: ${question["answer"] ?: ""}",
+                                fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -450,28 +436,6 @@ private fun QuizCardView(
                     }
                 }
             }
-
-            // Summary when all done
-            if (completedCount == total) {
-                Spacer(modifier = Modifier.height(8.dp))
-                val correctCount = gradeResults.values.count { g ->
-                    val c = g?.get("is_correct")
-                    c == true || c.toString() == "True"
-                }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                    )
-                ) {
-                    Text(
-                        "测验完成！$correctCount / $total 正确",
-                        modifier = Modifier.padding(12.dp),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                }
-            }
         }
     }
 }
@@ -483,7 +447,6 @@ private fun parseOptions(optionsJson: String?): List<String> {
         val arr = JSONArray(optionsJson)
         (0 until arr.length()).map { arr.getString(it) }
     } catch (e: Exception) {
-        // Fallback: split by newline if not JSON
         optionsJson.lines().filter { it.isNotBlank() }
     }
 }

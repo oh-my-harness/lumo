@@ -1,6 +1,7 @@
 package com.lumo.app.ui.today
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumo.app.data.LumoRepository
+import com.lumo.app.ui.profile.CreatePlanScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -206,7 +208,163 @@ fun TodayScreen() {
                 Text("今日打卡")
             }
         }
-    }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // === 学习计划 section ===
+        var plans by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+        var showCreatePlan by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            try { plans = repo.listPlans() } catch (e: Exception) {}
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("学习计划", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { showCreatePlan = true }) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Text("新建")
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        plans.forEach { plan ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(plan["title"] ?: "", fontWeight = FontWeight.Medium)
+                        Text(
+                            plan["goal"] ?: "",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                    AssistChip(
+                        onClick = {
+                            val newStatus = if (plan["status"] == "active") "paused" else "active"
+                            scope.launch {
+                                withContext(Dispatchers.IO) { repo.updatePlanStatus(plan["id"]!!, newStatus) }
+                                plans = repo.listPlans()
+                            }
+                        },
+                        label = { Text(plan["status"] ?: "") }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // === 学习统计 section ===
+        Text("学习统计", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        var stats by remember { mutableStateOf<Map<String, Any?>>(emptyMap()) }
+        LaunchedEffect(Unit) {
+            try { stats = repo.getStats() } catch (e: Exception) {}
+        }
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                val totalTime = stats["total_study_time"] as? Int ?: 0
+                Text("总学习时长: ${totalTime / 60} 分钟")
+
+                // 学习趋势（近 7 天）
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("近 7 天学习时长", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                var trend by remember { mutableStateOf<Map<String, Any?>?>(null) }
+                LaunchedEffect(Unit) {
+                    try { trend = withContext(Dispatchers.IO) { repo.getStudyTrend("week") } } catch (e: Exception) {}
+                }
+                trend?.let { t ->
+                    @Suppress("UNCHECKED_CAST")
+                    val data = t["data"] as? Map<String, Any> ?: emptyMap()
+                    val maxVal = ((data.values.mapNotNull { it as? Int }.maxOrNull()) ?: 1).coerceAtLeast(1)
+                    data.entries.toList().takeLast(7).forEach { (date, seconds) ->
+                        val mins = ((seconds as? Int) ?: 0) / 60
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(date.takeLast(5), fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val barWidth = (mins.toFloat() / maxVal.coerceAtLeast(1)).coerceIn(0f, 1f)
+                            Box(modifier = Modifier
+                                .width((barWidth * 120).toInt().dp.coerceAtLeast(2.dp))
+                                .height(8.dp)
+                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp)))
+                            Text("${mins}m", fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                // 打卡热力图
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("本月打卡", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                var heatmap by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+                LaunchedEffect(Unit) {
+                    try {
+                        val month = LocalDate.now().toString().take(7)
+                        heatmap = withContext(Dispatchers.IO) { repo.getCheckinHeatmap(month) }
+                    } catch (e: Exception) {}
+                }
+                Text("打卡 ${heatmap.size} 天", fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                // 知识点掌握度
+                if (plans.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("知识点掌握度", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    var mastery by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+                    LaunchedEffect(plans) {
+                        try {
+                            mastery = withContext(Dispatchers.IO) {
+                                repo.getKnowledgeMastery(plans.first()["id"]!!)
+                            }
+                        } catch (e: Exception) {}
+                    }
+                    mastery.forEach { kp ->
+                        val level = kp["mastery_level"] ?: "0"
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(kp["name"] ?: "", fontSize = 12.sp)
+                            LinearProgressIndicator(
+                                progress = { (level.toFloatOrNull() ?: 0f) / 100f },
+                                modifier = Modifier.width(100.dp)
+                            )
+                            Text("$level%", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create plan dialog
+        if (showCreatePlan) {
+            CreatePlanScreen(
+                onSave = { _, _, _, _, _ ->
+                    scope.launch {
+                        try { plans = repo.listPlans() } catch (e: Exception) {}
+                        showCreatePlan = false
+                    }
+                },
+                onBack = { showCreatePlan = false }
+            )
+        }
+}
 }
 
 @Composable

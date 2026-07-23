@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.lumo.app.data.LumoRepository
 import com.lumo.app.ui.markdown.MarkdownRenderer
+import com.lumo.app.ui.quiz.QuizCardOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -144,8 +145,14 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
     var messages by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
     var inputText by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var quickPrompts by remember { mutableStateOf<List<Map<String, String>>>(emptyList()) }
     var chatStarted by remember { mutableStateOf(false) }
+    var quickPrompts by remember { mutableStateOf<List<Map<String, String>>>(emptyList()) }
+    // Quiz overlay state
+    var quizQuestions by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+    var showQuiz by remember { mutableStateOf(false) }
+    var generatingQuiz by remember { mutableStateOf(false) }
+    var quizTopic by remember { mutableStateOf("") }
+    var showQuizGenDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(sessionId) {
@@ -173,6 +180,9 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                 }
             },
             actions = {
+                IconButton(onClick = { showQuizGenDialog = true }) {
+                    Icon(Icons.Filled.Quiz, contentDescription = "出题")
+                }
                 IconButton(onClick = { showSaveNoteDialog = true }) {
                     Icon(Icons.Filled.Save, contentDescription = "保存为笔记")
                 }
@@ -350,6 +360,95 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                     }
                 }
             }) { Icon(sendIcon, contentDescription = if (loading) "停止" else "发送") }
+        }
+
+        // Quiz generation dialog
+        if (showQuizGenDialog) {
+            AlertDialog(
+                onDismissRequest = { if (!generatingQuiz) showQuizGenDialog = false },
+                title = { Text("出题") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = quizTopic,
+                            onValueChange = { quizTopic = it },
+                            label = { Text("知识点 / 主题") },
+                            placeholder = { Text("如：Python 闭包") },
+                            singleLine = true,
+                            enabled = !generatingQuiz
+                        )
+                        if (generatingQuiz) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("AI 正在出题...", fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (quizTopic.isNotBlank() && !generatingQuiz) {
+                                scope.launch {
+                                    generatingQuiz = true
+                                    try {
+                                        val result = withContext(Dispatchers.IO) {
+                                            repo.generateQuiz(quizTopic, 3)
+                                        }
+                                        // Extract questions from result
+                                        @Suppress("UNCHECKED_CAST")
+                                        val qList = (result["questions"] as? List<*>)?.mapNotNull { q ->
+                                            @Suppress("UNCHECKED_CAST")
+                                            (q as? Map<String, Any?>)?.map { (k, v) ->
+                                                k to v?.toString()
+                                            }?.toMap()
+                                        } ?: emptyList()
+                                        if (qList.isNotEmpty()) {
+                                            quizQuestions = qList
+                                            showQuiz = true
+                                            showQuizGenDialog = false
+                                            quizTopic = ""
+                                        }
+                                    } catch (e: Exception) {
+                                        // Fallback: load from quiz bank
+                                        try {
+                                            val allQ = withContext(Dispatchers.IO) { repo.getQuizQuestions() }
+                                            if (allQ.isNotEmpty()) {
+                                                quizQuestions = allQ.take(3)
+                                                showQuiz = true
+                                                showQuizGenDialog = false
+                                                quizTopic = ""
+                                            }
+                                        } catch (e2: Exception) {}
+                                    }
+                                    generatingQuiz = false
+                                }
+                            }
+                        },
+                        enabled = !generatingQuiz && quizTopic.isNotBlank()
+                    ) {
+                        if (generatingQuiz) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        else Text("出题")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { if (!generatingQuiz) showQuizGenDialog = false },
+                        enabled = !generatingQuiz
+                    ) { Text("取消") }
+                }
+            )
+        }
+
+        // Full-screen quiz overlay
+        if (showQuiz && quizQuestions.isNotEmpty()) {
+            QuizCardOverlay(
+                questions = quizQuestions,
+                onExit = { showQuiz = false; quizQuestions = emptyList() }
+            )
         }
     }
 }
