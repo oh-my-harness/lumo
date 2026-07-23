@@ -32,7 +32,7 @@ fun QuizScreen() {
     // 答题状态
     var answeringId by remember { mutableStateOf<String?>(null) }
     var selectedAnswer by remember { mutableStateOf("") }
-    var gradeResult by remember { mutableStateOf<Map<String, Any?>?>(null) }
+    var gradeResults by remember { mutableStateOf<Map<String, Map<String, Any?>?>>(emptyMap()) }
 
     // 生成测验状态
     var showGenDialog by remember { mutableStateOf(false) }
@@ -134,20 +134,21 @@ fun QuizScreen() {
                                                             val result = withContext(Dispatchers.IO) {
                                                                 repo.gradeAnswer(qid, selectedAnswer)
                                                             }
-                                                            gradeResult = result
+                                                            gradeResults = gradeResults + (qid to result)
+                                                            refresh()
                                                         }
                                                     }) { Text("提交") }
                                                     TextButton(onClick = {
                                                         answeringId = null
                                                         selectedAnswer = ""
-                                                        gradeResult = null
+                                                        gradeResults = gradeResults - qid
                                                     }) { Text("取消") }
                                                 }
                                             } else {
                                                 TextButton(onClick = {
                                                     answeringId = qid
                                                     selectedAnswer = ""
-                                                    gradeResult = null
+                                                    gradeResults = gradeResults - qid
                                                 }) { Text("答题") }
                                             }
                                         } else {
@@ -161,7 +162,7 @@ fun QuizScreen() {
                                                 ) {
                                                     RadioButton(
                                                         selected = selectedAnswer == idx.toString(),
-                                                        enabled = !isAnswering || gradeResult == null,
+                                                        enabled = !isAnswering || gradeResults[qid] == null,
                                                         onClick = {
                                                             selectedAnswer = idx.toString()
                                                             answeringId = qid
@@ -170,14 +171,14 @@ fun QuizScreen() {
                                                     Text(opt, fontSize = 14.sp)
                                                 }
                                             }
-                                            if (isAnswering && selectedAnswer.isNotEmpty() && gradeResult == null) {
+                                            if (isAnswering && selectedAnswer.isNotEmpty() && gradeResults[qid] == null) {
                                                 Button(onClick = {
                                                     scope.launch {
                                                         val answerText = options.getOrNull(selectedAnswer.toIntOrNull() ?: -1) ?: selectedAnswer
                                                         val result = withContext(Dispatchers.IO) {
                                                             repo.gradeAnswer(qid, answerText)
                                                         }
-                                                        gradeResult = result
+                                                        gradeResults = gradeResults + (qid to result)
                                                         // 刷新错题本
                                                         refresh()
                                                     }
@@ -186,7 +187,7 @@ fun QuizScreen() {
                                         }
 
                                         // 判分结果
-                                        gradeResult?.let { result ->
+                                        gradeResults[qid]?.let { result ->
                                             Spacer(modifier = Modifier.height(8.dp))
                                             val correct = result["is_correct"]
                                             val isCorrect = correct == true || correct.toString() == "True"
