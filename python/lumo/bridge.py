@@ -292,6 +292,57 @@ def start_chat(session_id: str) -> None:
     _chat_session = ChatSession(store, config, session_id)
 
 
+def start_chat_with_task(session_id: str, task_id: str) -> str:
+    """Start a chat session with a learning task context injected.
+
+    Sends an initial AI message introducing the task so the user can
+    start learning immediately.
+    """
+    global _chat_session
+    from lumo.agent import ChatSession
+    from lumo.config import get_provider_config
+
+    store = _ensure_store()
+    config = get_provider_config(store)
+    if config is None:
+        raise RuntimeError("Provider not configured. Call save_provider_config first.")
+
+    # Get task + plan info
+    task = store.get_task(task_id)
+    if task is None:
+        raise RuntimeError("Task not found")
+    plan = store.get_plan(task.get("plan_id", ""))
+
+    # Build task context for system prompt
+    task_title = task.get("title", "")
+    task_desc = task.get("description", "")
+    task_kps = task.get("knowledge_points", "[]")
+    plan_goal = plan.get("goal", "") if plan else ""
+
+    # Inject into ChatSession via extra system prompt
+    _chat_session = ChatSession(store, config, session_id)
+
+    # Set session title to task title
+    store.update_session_title(session_id, task_title[:20])
+
+    # Send initial context message as user (so AI responds with a lesson intro)
+    import json as _json
+    kp_list = []
+    try:
+        kp_list = _json.loads(task_kps) if task_kps else []
+    except Exception:
+        pass
+
+    kp_str = "、".join(kp_list) if kp_list else "相关知识点"
+    intro = (
+        f"我正在学习计划「{plan_goal}」中的任务：{task_title}。\n"
+        f"任务描述：{task_desc}\n"
+        f"涉及知识点：{kp_str}\n\n"
+        "请作为我的学习教练，帮我开始学习这个任务。先简要介绍这个知识点，然后引导我逐步深入。"
+    )
+    return _chat_session.send_message(intro)
+
+
 def send_message(text: str) -> str:
     """Send a message and return the complete response."""
     if _chat_session is None:

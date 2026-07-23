@@ -29,7 +29,7 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen() {
+fun TodayScreen(navController: androidx.navigation.NavController) {
     val repo = LumoRepository.get()
     var tasks by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
     var streak by remember { mutableStateOf(0) }
@@ -224,6 +224,17 @@ fun TodayScreen() {
                                         }
                                     }
                                 }
+                            }
+                            // Create a chat session for this task and navigate
+                            scope.launch {
+                                try {
+                                    val sessionId = withContext(Dispatchers.IO) {
+                                        val sid = repo.createSession("新对话")
+                                        repo.startChatWithTask(sid, taskId)
+                                        sid
+                                    }
+                                    navController.navigate("chat/$sessionId")
+                                } catch (e: Exception) {}
                             }
                         },
                         onCheckin = {

@@ -162,6 +162,8 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         try {
             messages = repo.getMessages(sessionId)
             quickPrompts = repo.getQuickPrompts()
+            // If messages exist, chat was already started (e.g. via task context)
+            if (messages.isNotEmpty()) chatStarted = true
         } catch (e: Exception) {}
     }
     val listState = rememberLazyListState()

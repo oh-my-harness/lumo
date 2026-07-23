@@ -455,6 +455,11 @@ class Store:
                 ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_task(self, task_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            return dict(row) if row else None
+
     def get_tasks_for_day(self, plan_id: str, week_num: int, day_of_week: int) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(

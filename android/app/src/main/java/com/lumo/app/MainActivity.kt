@@ -102,7 +102,7 @@ fun LumoApp() {
             startDestination = "today",
             modifier = Modifier.padding(innerPadding).statusBarsPadding()
         ) {
-            composable("today") { TodayScreen() }
+            composable("today") { TodayScreen(navController) }
             composable("chat") { ChatListScreen(navController) }
             composable("chat/{sessionId}") { backStackEntry ->
                 ChatDetailScreen(
