@@ -71,7 +71,6 @@ fun ProfileScreen() {
             onSave = { title, goal, minutes, start, end ->
                 scope.launch {
                     try {
-                        repo.createPlan(title, goal, minutes, start, end)
                         plans = repo.listPlans()
                     } catch (e: Exception) {}
                     showCreatePlan = false
@@ -333,10 +332,12 @@ private fun CreatePlanScreen(
                                 val result = withContext(Dispatchers.IO) {
                                     repo.generatePlan(goal, mins)
                                 }
-                                genResult = "计划已生成！${result["weeks"] ?: ""} 周大纲已创建"
+                                @Suppress("UNCHECKED_CAST")
+                                val weekCount = (result["weeks"] as? List<*>)?.size ?: 0
+                                genResult = "计划已生成！$weekCount 周大纲已创建"
                                 generating = false
                                 // 刷新列表
-                                onSave(result["plan_id"]?.toString() ?: "", goal, mins, "", "")
+                                onSave("", goal, mins, "", "")
                             } catch (e: Exception) {
                                 genResult = "错误: ${e.message}"
                                 generating = false
