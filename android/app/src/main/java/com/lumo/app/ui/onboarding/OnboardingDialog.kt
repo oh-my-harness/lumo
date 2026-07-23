@@ -262,7 +262,7 @@ private fun StepApiKey(
                                     "openai",
                                     apiKey.trim(),
                                     "https://api.deepseek.com/",
-                                    "deepseek-chat"
+                                    "deepseek-v4-flash"
                                 )
                             }
                             saveResult = "配置已保存！"

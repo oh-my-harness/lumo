@@ -377,7 +377,7 @@ private fun ModelConfigScreen(
                     // Quick fill DeepSeek defaults
                     providerType = "openai"
                     baseUrl = "https://api.deepseek.com/"
-                    model = "deepseek-chat"
+                    model = "deepseek-v4-flash"
                 }) { Text("填入 DeepSeek 默认配置") }
             }
         }
