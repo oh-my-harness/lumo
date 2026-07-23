@@ -62,7 +62,7 @@ fun ProfileScreen() {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("我的", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text("我的", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
 
         if (loading) {
@@ -99,7 +99,7 @@ fun ProfileScreen() {
 
 @Composable
 private fun SectionHeader(text: String) {
-    Text(text, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+    Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
 }
 
 @Composable
@@ -126,7 +126,7 @@ private fun ModelConfigScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
             }
-            Text("模型配置", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("模型配置", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             TextButton(onClick = { onSave(providerType, apiKey, baseUrl, model) }) {
                 Text("保存")
             }
@@ -257,8 +257,43 @@ private fun ModelConfigScreen(
         }
 
         if (testResult.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(testResult, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(12.dp))
+            val isSuccess = testResult.contains("成功") || testResult.contains("success", ignoreCase = true)
+            val isError = testResult.startsWith("错误") || testResult.contains("失败") || testResult.contains("error", ignoreCase = true)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = when {
+                        isSuccess -> MaterialTheme.colorScheme.primaryContainer
+                        isError -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
+                )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (testResult == "测试中...") {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        testResult,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = when {
+                            isSuccess -> MaterialTheme.colorScheme.onPrimaryContainer
+                            isError -> MaterialTheme.colorScheme.onErrorContainer
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -284,7 +319,7 @@ fun CreatePlanScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
             }
-            Text("新建学习计划", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("新建学习计划", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             TextButton(
                 onClick = {
                     if (goal.isNotBlank() && !generating) {

@@ -296,7 +296,7 @@ private fun QuizCardView(
             // Question text
             Text(
                 question["question"] ?: "",
-                fontSize = 18.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -398,7 +398,7 @@ private fun QuizCardView(
                             Text(
                                 if (isCorrect) "正确！" else "答错了",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 14.sp
                             )
                         }
                         result["explanation"]?.let { exp ->
@@ -468,7 +468,7 @@ private fun QuizCardView(
                         "测验完成！$correctCount / $total 正确",
                         modifier = Modifier.padding(12.dp),
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 13.sp
                     )
                 }
             }

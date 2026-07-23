@@ -90,7 +90,7 @@ fun QuizCardOverlay(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     "$correctCount / $total",
-                    fontSize = 48.sp,
+                    fontSize = 36.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text("正确", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -291,7 +291,7 @@ private fun QuizCardContent(
             // Question text
             Text(
                 question["question"] ?: "",
-                fontSize = 18.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -390,7 +390,7 @@ private fun QuizCardContent(
                             Text(
                                 if (isCorrect) "正确！" else "答错了",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 14.sp
                             )
                         }
                         result["explanation"]?.let { exp ->

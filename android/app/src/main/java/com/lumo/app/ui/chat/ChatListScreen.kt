@@ -47,7 +47,7 @@ fun ChatListScreen(navController: NavController) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("对话", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("对话", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             FloatingActionButton(onClick = {
                 val sid = repo.createSession("新对话")
                 navController.navigate("chat/$sid")

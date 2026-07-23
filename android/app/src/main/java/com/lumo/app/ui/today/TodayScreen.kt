@@ -98,7 +98,7 @@ fun TodayScreen() {
                 val secs = pomodoroSeconds % 60
                 Text(
                     String.format("%02d:%02d", mins, secs),
-                    fontSize = 40.sp,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -472,7 +472,7 @@ private fun StatCard(label: String, value: String, icon: androidx.compose.ui.gra
         ) {
             Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
             Spacer(modifier = Modifier.height(4.dp))
-            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(value, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

@@ -63,7 +63,7 @@ fun NotesListScreen() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("笔记", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("笔记", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             FloatingActionButton(onClick = { showEditor = true; editingNote = null }) {
                 Icon(Icons.Filled.Add, contentDescription = "新建笔记")
             }
@@ -169,7 +169,7 @@ private fun NoteEditorScreen(
             }
             Text(
                 if (note == null) "新建笔记" else "编辑笔记",
-                fontSize = 18.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
             )
             Row {
