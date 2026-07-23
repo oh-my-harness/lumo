@@ -114,8 +114,8 @@ fun TodayScreen() {
                                                             taskId, planId,
                                                             pomodoroDuration * 60, pomodoroStartedAt
                                                         )
+                                                        totalStudy = repo.getTotalStudyTime()
                                                     }
-                                                    totalStudy = repo.getTotalStudyTime()
                                                 }
                                             }
                                         }
@@ -191,8 +191,10 @@ fun TodayScreen() {
                 onClick = {
                     scope.launch {
                         try {
-                            withContext(Dispatchers.IO) { repo.checkinToday(completedTaskIds) }
-                            streak = repo.getStreak()
+                            withContext(Dispatchers.IO) {
+                                repo.checkinToday(completedTaskIds)
+                                streak = repo.getStreak()
+                            }
                         } catch (e: Exception) {}
                     }
                 },
