@@ -82,6 +82,18 @@ def test_connection(config: ProviderConfig) -> tuple[bool, str]:
         for event in events:
             if event["type"] == "text_delta":
                 text += event.get("text", "")
-        return True, f"Connection OK. Response: {text[:50]}"
+        if text.strip():
+            return True, f"连接成功，模型 {config.model} 已回复"
+        else:
+            return True, f"连接成功，但模型未返回内容（可能需要检查模型名称）"
     except Exception as e:
-        return False, f"Connection failed: {e}"
+        msg = str(e)
+        if "401" in msg or "Unauthorized" in msg:
+            return False, "API Key 无效，请检查"
+        elif "404" in msg or "Not Found" in msg:
+            return False, f"模型 {config.model} 不存在，请检查模型名称"
+        elif "timeout" in msg.lower() or "timed out" in msg.lower():
+            return False, "连接超时，请检查网络或 Base URL"
+        elif "Connection" in msg or "connect" in msg.lower():
+            return False, f"无法连接到 {config.base_url}，请检查地址"
+        return False, f"连接失败: {msg[:100]}"

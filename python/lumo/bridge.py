@@ -84,7 +84,7 @@ def test_provider_connection(
         model=model,
     )
     success, message = _test_connection(config)
-    return f"{'OK' if success else 'FAIL'}: {message}"
+    return f"{'✅ ' if success else '❌ '}{message}"
 
 
 # ── Sessions (Module 1) ──
