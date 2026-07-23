@@ -147,6 +147,12 @@ class LumoRepository private constructor(private val py: Python) {
             k.toString() to converted
         }
     }
+    fun generateQuiz(knowledgePoints: String, numQuestions: Int = 3, planId: String = "", taskId: String = ""): Map<String, Any?> {
+        val result = bridge().callAttr("generate_quiz", knowledgePoints, numQuestions, planId, taskId)
+        return result.asMap().entries.associate { (k, v) ->
+            k.toString() to (v as? Any)
+        }
+    }
 
     // ── Stats ──
     fun getStats(): Map<String, Any?> {
