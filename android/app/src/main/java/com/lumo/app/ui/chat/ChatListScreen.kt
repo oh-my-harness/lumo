@@ -28,6 +28,9 @@ fun ChatListScreen(navController: NavController) {
     val repo = LumoRepository.get()
     var sessions by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<Map<String, String?>>>(emptyList()) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         loading = true
@@ -48,8 +51,53 @@ fun ChatListScreen(navController: NavController) {
             }) { Icon(Icons.Filled.Add, contentDescription = "新建对话") }
         }
 
+        // 搜索栏
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { query ->
+                searchQuery = query
+                scope.launch {
+                    searchResults = if (query.isBlank()) emptyList()
+                    else withContext(Dispatchers.IO) { repo.searchMessages(query) }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            placeholder = { Text("搜索对话内容...") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = ""; searchResults = emptyList() }) {
+                        Icon(Icons.Filled.Clear, contentDescription = "清除")
+                    }
+                }
+            },
+            singleLine = true
+        )
+
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (searchQuery.isNotEmpty()) {
+            // 搜索结果模式
+            if (searchResults.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("未找到匹配内容", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                    items(searchResults) { msg ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                .clickable { navController.navigate("chat/${msg["session_id"]}") },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(msg["content"] ?: "", maxLines = 2,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
         } else if (sessions.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("点击 + 开始新的对话", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -62,10 +110,23 @@ fun ChatListScreen(navController: NavController) {
                             .clickable { navController.navigate("chat/${session["id"]}") },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(session["title"]?.ifEmpty { "新对话" } ?: "新对话", fontWeight = FontWeight.Medium)
-                            Text(session["updated_at"]?.take(10) ?: "", fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(session["title"]?.ifEmpty { "新对话" } ?: "新对话", fontWeight = FontWeight.Medium)
+                                Text(session["updated_at"]?.take(10) ?: "", fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            IconButton(onClick = {
+                                repo.deleteSession(session["id"]!!)
+                                sessions = repo.listSessions()
+                            }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "删除",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
