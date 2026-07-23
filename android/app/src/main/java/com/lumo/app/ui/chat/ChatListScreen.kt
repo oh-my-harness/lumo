@@ -92,7 +92,7 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
         } catch (e: Exception) {}
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.size, messages.lastOrNull()?.get("content")) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
@@ -175,14 +175,15 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                     inputText = ""
                     scope.launch {
                         loading = true
+                        var aiIndex = -1
                         try {
                             if (!chatStarted) {
                                 withContext(Dispatchers.IO) { repo.startChat(sessionId) }
                                 chatStarted = true
                             }
                             messages = messages + mapOf("role" to "user", "content" to text)
-                            // 流式：先插入空的 AI 消息，逐 token 更新
-                            val aiIndex = messages.size
+                            // 流式：先插入空的 AI 抂点，逐 token 更新
+                            aiIndex = messages.size
                             messages = messages + mapOf("role" to "assistant", "content" to "")
                             val fullResponse = withContext(Dispatchers.IO) {
                                 repo.streamChat(text) { token ->
@@ -201,7 +202,15 @@ fun ChatDetailScreen(sessionId: String, navController: NavController) {
                                 }
                             }
                         } catch (e: Exception) {
-                            messages = messages + mapOf("role" to "assistant", "content" to "错误: ${e.message}")
+                            if (aiIndex >= 0 && aiIndex < messages.size) {
+                                messages = messages.toMutableList().also {
+                                    it[aiIndex] = it[aiIndex].toMutableMap().also { m ->
+                                        m["content"] = "错误: ${e.message}"
+                                    }
+                                }
+                            } else {
+                                messages = messages + mapOf("role" to "assistant", "content" to "错误: ${e.message}")
+                            }
                         }
                         loading = false
                     }
